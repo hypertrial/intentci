@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/hypertrial/intentci/internal/cache"
 	"github.com/hypertrial/intentci/internal/contract"
+	"github.com/hypertrial/intentci/internal/junit"
 	"github.com/hypertrial/intentci/internal/runner"
 	"github.com/hypertrial/intentci/pkg/protocol"
 )
@@ -109,6 +112,7 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 				})
 				flushPrefix(outW)
 				flushPrefix(errW)
+				res = applyJUnit(opt.Dir, ch, res)
 				if !opt.NoCache && opt.Cache != nil && res.Status == protocol.CheckPass {
 					key, ok, err := cache.Key(cache.KeyInput{
 						Check:        ch,
@@ -130,6 +134,42 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 	}
 
 	return results
+}
+
+func applyJUnit(root string, ch contract.Check, res runner.Result) runner.Result {
+	if ch.Results == nil || !strings.EqualFold(ch.Results.Format, "junit") {
+		return res
+	}
+	if ch.Results.Path == "" {
+		res.Status = protocol.CheckUnknown
+		res.Reason = "junit results.path is empty"
+		return res
+	}
+	path := ch.Results.Path
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	parsed, err := junit.ParseFile(path)
+	if err != nil {
+		// Exit-code failures still stand; parse errors upgrade pass/unknown.
+		if res.Status == protocol.CheckFail {
+			res.Reason = strings.TrimSpace(res.Reason + "; junit parse error: " + err.Error())
+			return res
+		}
+		res.Status = protocol.CheckUnknown
+		res.Reason = "junit parse error: " + err.Error()
+		return res
+	}
+	if !parsed.OK {
+		res.Status = protocol.CheckFail
+		msg := strings.Join(parsed.Failures, "; ")
+		if res.Reason != "" {
+			res.Reason = res.Reason + "; " + msg
+		} else {
+			res.Reason = msg
+		}
+	}
+	return res
 }
 
 func readyChecks(pending map[string]struct{}, checks map[string]contract.Check, results map[string]runner.Result) []string {

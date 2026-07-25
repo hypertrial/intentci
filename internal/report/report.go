@@ -51,6 +51,25 @@ func WriteText(w io.Writer, res *protocol.Result) error {
 			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
 		}
 	}
+	if len(res.ContractChanges) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Contract changes")
+		for _, f := range res.ContractChanges {
+			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
+		}
+	}
+	if len(res.Waivers) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Waivers")
+		for _, w := range res.Waivers {
+			who := w.Owner
+			if who == "" {
+				who = w.Approver
+			}
+			fmt.Fprintf(&b, "  %s  %s  expires %s  (%s)\n", w.ID, w.Requirement, w.Expires, who)
+			fmt.Fprintf(&b, "    %s\n", w.Reason)
+		}
+	}
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Requirements")
 	if len(res.Requirements) == 0 {
@@ -85,6 +104,7 @@ func WriteText(w io.Writer, res *protocol.Result) error {
 	fmt.Fprintf(&b, "  %d failed\n", s.Fail)
 	fmt.Fprintf(&b, "  %d unverified\n", s.Unverified)
 	fmt.Fprintf(&b, "  %d unknown\n", s.Unknown)
+	fmt.Fprintf(&b, "  %d waived\n", s.Waived)
 	fmt.Fprintf(&b, "  %d checks executed\n", s.ChecksExecuted)
 	fmt.Fprintf(&b, "  %d checks cached\n", s.ChecksCached)
 	_, err := io.WriteString(w, b.String())

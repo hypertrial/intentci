@@ -52,13 +52,33 @@
     },
     "waivers": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "items": { "$ref": "#/$defs/waiver" }
     }
   },
   "$defs": {
+    "waiver": {
+      "type": "object",
+      "required": ["id", "requirement", "reason", "expires"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^W-[0-9A-Z]+$"
+        },
+        "requirement": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "approver": { "type": "string", "minLength": 1 },
+        "expires": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      },
+      "anyOf": [
+        { "required": ["owner"] },
+        { "required": ["approver"] }
+      ]
+    },
     "acceptance": {
       "type": "object",
       "required": ["id", "statement", "severity", "verification"],

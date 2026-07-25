@@ -27,13 +27,19 @@ func TestValidateErrorStringAndNormalize(t *testing.T) {
 		"non_goals":             []any{},
 		"affected_requirements": []any{},
 		"required_checks":       []any{},
-		"waivers":               []any{},
+		"waivers": []any{
+			"not-a-map",
+			map[string]any{"owner": "", "approver": ""},
+		},
 		"acceptance": []any{
 			map[string]any{"verification": map[string]any{"semantic": ""}},
 		},
 		"x": nil,
 	}
 	normalize(m)
+	if w := m["waivers"].([]any)[1].(map[string]any); len(w) != 0 {
+		t.Fatalf("expected empty owner/approver stripped: %+v", w)
+	}
 	dir := t.TempDir()
 	if _, err := Create(dir, "Z-1"); err != nil {
 		t.Fatal(err)

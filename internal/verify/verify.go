@@ -15,6 +15,7 @@ import (
 	"github.com/hypertrial/intentci/internal/cache"
 	"github.com/hypertrial/intentci/internal/changespec"
 	"github.com/hypertrial/intentci/internal/contract"
+	"github.com/hypertrial/intentci/internal/contractdiff"
 	"github.com/hypertrial/intentci/internal/evidence"
 	"github.com/hypertrial/intentci/internal/git"
 	"github.com/hypertrial/intentci/internal/impact"
@@ -33,6 +34,7 @@ type Options struct {
 	Trust    bool
 	ChangeID string
 	NoCache  bool
+	Attest   bool
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Stream   bool
@@ -40,8 +42,9 @@ type Options struct {
 
 // Outcome is the verification result plus process exit code.
 type Outcome struct {
-	Result   *protocol.Result
-	ExitCode int
+	Result          *protocol.Result
+	ExitCode        int
+	AttestationPath string
 }
 
 // LastResultPath is where the latest JSON result is stored for explain.
@@ -61,11 +64,11 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		opt.Profile = "full"
 	}
 
-	c, raw, err := contract.LoadFromRoot(opt.Root)
+	headContract, raw, err := contract.LoadFromRoot(opt.Root)
 	if err != nil {
 		return &Outcome{ExitCode: 20}, fmt.Errorf("%w", err)
 	}
-	if err := contract.Validate(c); err != nil {
+	if err := contract.Validate(headContract); err != nil {
 		return &Outcome{ExitCode: 20}, err
 	}
 
@@ -80,7 +83,7 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		if err != nil {
 			return &Outcome{ExitCode: 20}, err
 		}
-		if err := changespec.Validate(change, c); err != nil {
+		if err := changespec.Validate(change, headContract); err != nil {
 			return &Outcome{ExitCode: 20}, err
 		}
 		changeHash = changespec.Hash(changeRaw)
@@ -88,7 +91,7 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 
 	base := opt.Base
 	if base == "" {
-		base = c.Policy.DefaultBaseOr("origin/main")
+		base = headContract.Policy.DefaultBaseOr("origin/main")
 	}
 
 	state, err := git.Resolve(opt.Root, base)
@@ -96,9 +99,21 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		return &Outcome{ExitCode: 21}, err
 	}
 
+	baseContract, _, baseOK, err := loadBaseContract(opt.Root, state.MergeBaseFull)
+	if err != nil {
+		return &Outcome{ExitCode: 20}, err
+	}
+	var contractChanges []protocol.ContractChange
+	effective := headContract
+	if baseOK {
+		contractChanges = contractdiff.Diff(baseContract, headContract)
+		effective = contractdiff.Effective(baseContract, headContract)
+	}
+	if contractChanges == nil {
+		contractChanges = []protocol.ContractChange{}
+	}
+
 	if change != nil {
-		// Compare against the merge-base tree (same commit as result.base_commit),
-		// not the tip of the base ref, so diverged main history cannot skew findings.
 		baseData, ok, _ := changespec.LoadBase(opt.Root, state.MergeBaseFull, change.ID)
 		findings = changespec.DiffApproved(change.ID, baseData, ok, change, changeRaw)
 	}
@@ -107,6 +122,7 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		All:     opt.All,
 		Profile: opt.Profile,
 	}
+	waived := map[string]protocol.Waiver{}
 	if change != nil {
 		impactOpt.ForceRequirementIDs = append([]string{}, change.AffectedRequirements...)
 		impactOpt.ForceCheckIDs = append([]string{}, change.RequiredChecks...)
@@ -124,9 +140,22 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 				},
 			})
 		}
+		// Waivers apply only from approved Change Specs (drafts may define them for later).
+		if change.Status == "approved" {
+			for _, w := range change.Waivers {
+				waived[w.Requirement] = protocol.Waiver{
+					ID:          w.ID,
+					Requirement: w.Requirement,
+					Reason:      w.Reason,
+					Owner:       w.Owner,
+					Approver:    w.Approver,
+					Expires:     w.Expires,
+				}
+			}
+		}
 	}
 
-	sel := impact.Resolve(c, state.ChangedFiles, impactOpt)
+	sel := impact.Resolve(effective, state.ChangedFiles, impactOpt)
 	contractHash := contract.Hash(raw)
 
 	var store *cache.Store
@@ -147,23 +176,32 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 			outW = opt.Stdout
 			errW = opt.Stderr
 		}
-		checkResults = scheduleChecks(ctx, c.CheckMap(), sel.CheckIDs, scheduler.Options{
+		checkResults = scheduleChecks(ctx, effective.CheckMap(), sel.CheckIDs, scheduler.Options{
 			Dir:          opt.Root,
-			MaxParallel:  c.Execution.MaxParallelOr(0),
+			MaxParallel:  effective.Execution.MaxParallelOr(0),
 			Stdout:       outW,
 			Stderr:       errW,
 			Cache:        store,
 			NoCache:      opt.NoCache,
 			ContractHash: contractHash,
 			ChangeHash:   changeHash,
-			EnvInclude:   c.Environment.Include,
+			EnvInclude:   effective.Environment.Include,
 		})
 	} else {
 		checkResults = map[string]runner.Result{}
 	}
 
-	reqResults := evidence.Assign(sel, checkResults, opt.Profile, c)
-	status, exitCode := evidence.Overall(reqResults, c.Policy)
+	reqResults := evidence.Assign(sel, checkResults, opt.Profile, effective, waived)
+	status, exitCode := evidence.Overall(reqResults, effective.Policy)
+
+	// Contract-approval gate: weakenings without type:contract force unverified.
+	if len(contractChanges) > 0 {
+		approvedContractChange := change != nil && change.Status == "approved" && change.Type == "contract"
+		if !approvedContractChange && status == protocol.StatusPass {
+			status = protocol.StatusUnverified
+			exitCode = 11
+		}
+	}
 
 	executed := 0
 	cached := 0
@@ -201,6 +239,11 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		findings = []protocol.ChangeFinding{}
 	}
 
+	waiverList := make([]protocol.Waiver, 0, len(waived))
+	for _, w := range waived {
+		waiverList = append(waiverList, w)
+	}
+
 	summary := evidence.Summarize(reqResults, executed)
 	summary.ChecksCached = cached
 
@@ -216,20 +259,51 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		ChangeSpec:       changeRef,
 		Requirements:     reqResults,
 		Checks:           checkList,
-		Waivers:          []any{},
-		ContractChanges:  []any{},
+		Waivers:          waiverList,
+		ContractChanges:  contractChanges,
 		ChangeFindings:   findings,
 		Summary:          summary,
 	}
 
 	_ = persistLastResult(opt.Root, result)
 
-	return &Outcome{Result: result, ExitCode: exitCode}, nil
+	out := &Outcome{Result: result, ExitCode: exitCode}
+	if opt.Attest {
+		if status != protocol.StatusPass || hasNonPassChecks(checkList) {
+			// Do not write attestation on non-pass overall or when any check failed/unknown
+			// (e.g. waiver-driven PASS with failing check records).
+			return out, nil
+		}
+		att, err := buildAttestation(result, effective.CheckMap(), effective.Environment.Include)
+		if err != nil {
+			return &Outcome{Result: result, ExitCode: 30}, err
+		}
+		path, err := writeAttestation(opt.Root, att)
+		if err != nil {
+			return &Outcome{Result: result, ExitCode: 30}, err
+		}
+		out.AttestationPath = path
+		fmt.Fprintf(opt.Stderr, "Wrote attestation: %s\n", path)
+	}
+
+	return out, nil
 }
 
 var mkdirAll = os.MkdirAll
 var writeFile = os.WriteFile
 var marshalIndent = json.MarshalIndent
+
+func hasNonPassChecks(checks []protocol.CheckResult) bool {
+	for _, ch := range checks {
+		switch ch.Status {
+		case protocol.CheckPass, protocol.CheckSkipped, protocol.CheckCached:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
 
 func persistLastResult(root string, result *protocol.Result) error {
 	path := LastResultPath(root)

@@ -26,8 +26,8 @@ func sampleResultForSchema() *protocol.Result {
 		Status:        "pass",
 		Requirements:  []protocol.RequirementResult{},
 		Checks:        []protocol.CheckResult{},
-		Waivers:       []any{},
-		ContractChanges: []any{},
+		Waivers:         []protocol.Waiver{},
+		ContractChanges: []protocol.ContractChange{},
 		ChangeFindings:  []protocol.ChangeFinding{},
 		Summary:       protocol.Summary{},
 	}

@@ -43,7 +43,7 @@
           "title": { "type": "string" },
           "status": {
             "type": "string",
-            "enum": ["pass", "fail", "unverified", "unknown", "not_affected"]
+            "enum": ["pass", "fail", "unverified", "unknown", "waived", "not_affected"]
           },
           "severity": {
             "type": "string",

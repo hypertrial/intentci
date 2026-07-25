@@ -11,7 +11,8 @@ import (
 )
 
 // Assign builds requirement results from impact selection and check outcomes.
-func Assign(sel impact.Selection, checkResults map[string]runner.Result, profile string, c *contract.Contract) []protocol.RequirementResult {
+// waived maps requirement IDs to applied waivers (optional).
+func Assign(sel impact.Selection, checkResults map[string]runner.Result, profile string, c *contract.Contract, waived map[string]protocol.Waiver) []protocol.RequirementResult {
 	out := make([]protocol.RequirementResult, 0, len(sel.Requirements))
 	for _, sr := range sel.Requirements {
 		r := sr.Requirement
@@ -23,6 +24,12 @@ func Assign(sel impact.Selection, checkResults map[string]runner.Result, profile
 			Checks:     []protocol.CheckRef{},
 			Evidence:   []protocol.Evidence{},
 			Findings:   []protocol.Finding{},
+		}
+		if w, ok := waived[r.ID]; ok {
+			rr.Status = protocol.ReqWaived
+			rr.Reason = fmt.Sprintf("Waived by %s: %s", w.ID, w.Reason)
+			out = append(out, rr)
+			continue
 		}
 
 		mode := r.Verification.VerificationMode()
@@ -169,6 +176,8 @@ func Overall(reqs []protocol.RequirementResult, policy contract.Policy) (status 
 			unverified = true
 		case protocol.ReqUnknown:
 			unknown = true
+		case protocol.ReqWaived:
+			// Waived blocking requirements do not block the run.
 		}
 	}
 	switch {
@@ -201,6 +210,8 @@ func Summarize(reqs []protocol.RequirementResult, checksExecuted int) protocol.S
 			s.Unverified++
 		case protocol.ReqUnknown:
 			s.Unknown++
+		case protocol.ReqWaived:
+			s.Waived++
 		case protocol.ReqNotAffected:
 			s.NotAffected++
 		}

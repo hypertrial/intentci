@@ -38,6 +38,7 @@ func newRoot() *cobra.Command {
 	root.AddCommand(newVerifyCmd())
 	root.AddCommand(newChangeCmd())
 	root.AddCommand(newExplainCmd())
+	root.AddCommand(newHookCmd())
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print IntentCI version",

@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/hypertrial/intentci/internal/contract"
 	appschema "github.com/hypertrial/intentci/pkg/schema"
 )
+
+// nowUTC is overridable for expiry tests.
+var nowUTC = func() time.Time { return time.Now().UTC() }
 
 // ValidationError collects Change Spec problems.
 type ValidationError struct {
@@ -58,6 +62,33 @@ func Validate(s *Spec, c *contract.Contract) error {
 	for _, id := range s.AffectedRequirements {
 		if _, ok := forceable[id]; !ok {
 			ve.add("affected_requirements references requirement %q which is not approved and blocking", id)
+		}
+	}
+	acIDs := map[string]struct{}{}
+	for _, ac := range s.Acceptance {
+		acIDs[ac.ID] = struct{}{}
+	}
+	seenWaiver := map[string]int{}
+	for i, w := range s.Waivers {
+		if prev, ok := seenWaiver[w.ID]; ok {
+			ve.add("duplicate waiver id %q (indexes %d and %d)", w.ID, prev, i)
+		} else {
+			seenWaiver[w.ID] = i
+		}
+		if _, ok := forceable[w.Requirement]; !ok {
+			if _, acOK := acIDs[w.Requirement]; !acOK {
+				ve.add("waiver %q references unknown requirement %q", w.ID, w.Requirement)
+			}
+		}
+		exp, err := time.Parse("2006-01-02", w.Expires)
+		if err != nil {
+			ve.add("waiver %q has invalid expires date %q", w.ID, w.Expires)
+			continue
+		}
+		today := nowUTC()
+		today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+		if exp.Before(today) {
+			ve.add("waiver %q expired on %s", w.ID, w.Expires)
 		}
 	}
 	if len(ve.Errors) > 0 {
@@ -115,8 +146,23 @@ func normalize(m map[string]any) {
 	if rc, ok := m["required_checks"].([]any); ok && len(rc) == 0 {
 		delete(m, "required_checks")
 	}
-	if w, ok := m["waivers"].([]any); ok && len(w) == 0 {
-		delete(m, "waivers")
+	if w, ok := m["waivers"].([]any); ok {
+		if len(w) == 0 {
+			delete(m, "waivers")
+		} else {
+			for _, item := range w {
+				wm, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if s, ok := wm["owner"].(string); ok && s == "" {
+					delete(wm, "owner")
+				}
+				if s, ok := wm["approver"].(string); ok && s == "" {
+					delete(wm, "approver")
+				}
+			}
+		}
 	}
 	if acc, ok := m["acceptance"].([]any); ok {
 		for _, a := range acc {

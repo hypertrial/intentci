@@ -44,7 +44,7 @@ func TestAssign_PassFailUnverifiedUnknown(t *testing.T) {
 		"slow": {Status: protocol.CheckUnknown, Reason: "timed out"},
 		"skip": {Status: protocol.CheckSkipped, Reason: "dep"},
 	}
-	got := evidence.Assign(sel, results, "full", c)
+	got := evidence.Assign(sel, results, "full", c, nil)
 	want := map[string]string{
 		"A-001": protocol.ReqPass, "B-001": protocol.ReqFail, "C-001": protocol.ReqUnverified,
 		"D-001": protocol.ReqUnknown, "E-001": protocol.ReqFail, "F-001": protocol.ReqUnverified,

@@ -17,7 +17,7 @@ IntentCI does not replace unit tests, linters, or remote CI. It answers:
 
 ## Status
 
-**v0.2.0** — Change Specs, cache, explain, and a CI-enforced 100% statement coverage gate. See [docs/v0.2.md](docs/v0.2.md), [docs/acceptance-v0.2.md](docs/acceptance-v0.2.md), [docs/roadmap.md](docs/roadmap.md), and [v1.md](v1.md).
+**v0.3.0** — Local workflow hardening: hooks, `--attest`, contract-weakening, JUnit parsing, and Change Spec waivers, with a CI-enforced 100% statement coverage gate. See [docs/v0.3.md](docs/v0.3.md), [docs/acceptance-v0.3.md](docs/acceptance-v0.3.md), [docs/roadmap.md](docs/roadmap.md), and [v1.md](v1.md).
 
 ## Install
 
@@ -71,8 +71,10 @@ Create and validate Change Specs, then verify with the change and without cache:
 intentci change create DEMO-1
 intentci validate
 intentci verify --change DEMO-1 --no-cache --trust
+intentci verify --attest --trust
 intentci explain BUILD-001
 intentci explain AC-001 --change DEMO-1
+intentci hook install
 ```
 
 5. Trust the repository on first run when prompted, or pass `--trust`.
@@ -95,6 +97,8 @@ Missing base references exit with code `21` rather than silently falling back.
 | `intentci explain <id>` | Explain a requirement or acceptance criterion |
 | `intentci check` | Fast profile verification |
 | `intentci verify` | Full profile verification |
+| `intentci hook install` | Install managed pre-push hook (`verify --attest`) |
+| `intentci hook uninstall` | Remove managed IntentCI hook section |
 | `intentci version` | Print version |
 
 Common flags for `check` / `verify`:
@@ -107,7 +111,10 @@ Common flags for `check` / `verify`:
 --output <path>       Write report to a file
 --trust               Trust this repository for local command execution
 --no-cache            Disable the successful-check cache
+--attest              (verify only) Write PASS-only attestation under .intentci/tmp/
 ```
+
+Git hooks are bypassable with `git push --no-verify` and are not organizational enforcement. Trust the repository once (`--trust` or interactive prompt) before relying on the pre-push hook, which runs `intentci verify --attest` without `--trust`.
 
 CI runs `./scripts/check-coverage.sh`, which requires **100.0%** statement coverage across `./...`.
 
@@ -119,7 +126,7 @@ CI runs `./scripts/check-coverage.sh`, which requires **100.0%** statement cover
 | `10` | Blocking requirement failed |
 | `11` | Blocking requirement unverified |
 | `12` | Blocking requirement unknown |
-| `20` | Invalid contract |
+| `20` | Invalid Product Contract or Change Spec |
 | `21` | Missing prerequisite |
 | `30` | Internal error |
 

@@ -90,6 +90,19 @@ func Key(in KeyInput) (string, bool, error) {
 	for _, k := range in.EnvInclude {
 		envVals[k] = os.Getenv(k)
 	}
+	var resultsHash string
+	if in.Check.Results != nil && in.Check.Results.Path != "" {
+		p := in.Check.Results.Path
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(in.RepoRoot, p)
+		}
+		if data, err := readFile(p); err == nil {
+			sum := sha256.Sum256(data)
+			resultsHash = hex.EncodeToString(sum[:])
+		} else {
+			resultsHash = "missing"
+		}
+	}
 	payload := map[string]any{
 		"intentci_version": version.String(),
 		"check_id":         in.Check.ID,
@@ -101,6 +114,7 @@ func Key(in KeyInput) (string, bool, error) {
 		"input_hash":       inputHash,
 		"contract_hash":    in.ContractHash,
 		"change_hash":      in.ChangeHash,
+		"results_hash":     resultsHash,
 		"os":               runtime.GOOS,
 		"arch":             runtime.GOARCH,
 		"env":              envVals,

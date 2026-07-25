@@ -20,17 +20,18 @@ type runFlags struct {
 	trust   bool
 	change  string
 	noCache bool
+	attest  bool
 }
 
 func newCheckCmd() *cobra.Command {
-	return newRunCmd("check", "fast", "Run fast-profile verification")
+	return newRunCmd("check", "fast", "Run fast-profile verification", false)
 }
 
 func newVerifyCmd() *cobra.Command {
-	return newRunCmd("verify", "full", "Run full-profile verification")
+	return newRunCmd("verify", "full", "Run full-profile verification", true)
 }
 
-func newRunCmd(use, profile, short string) *cobra.Command {
+func newRunCmd(use, profile, short string, allowAttest bool) *cobra.Command {
 	f := &runFlags{}
 	cmd := &cobra.Command{
 		Use:   use,
@@ -57,6 +58,7 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 				Trust:    f.trust,
 				ChangeID: f.change,
 				NoCache:  f.noCache,
+				Attest:   allowAttest && f.attest,
 				Stdout:   cmd.OutOrStdout(),
 				Stderr:   cmd.ErrOrStderr(),
 				Stream:   f.format != "json",
@@ -84,6 +86,9 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 	cmd.Flags().BoolVar(&f.trust, "trust", false, "Trust this repository for local command execution")
 	cmd.Flags().StringVar(&f.change, "change", "", "Change Spec id")
 	cmd.Flags().BoolVar(&f.noCache, "no-cache", false, "Disable the successful-check cache")
+	if allowAttest {
+		cmd.Flags().BoolVar(&f.attest, "attest", false, "Write a PASS-only attestation under .intentci/tmp/")
+	}
 	return cmd
 }
 

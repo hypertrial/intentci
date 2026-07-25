@@ -21,7 +21,7 @@ func TestAssign_ReasonFromFirstFinding(t *testing.T) {
 	sel := impact.Selection{Requirements: []impact.SelectedRequirement{{Requirement: c.Requirements[0]}}}
 	got := Assign(sel, map[string]runner.Result{
 		"bad": {Status: protocol.CheckFail, ExitCode: &one},
-	}, "full", c)
+	}, "full", c, nil)
 	if got[0].Reason == "" {
 		t.Fatalf("%+v", got[0])
 	}

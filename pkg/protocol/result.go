@@ -18,6 +18,7 @@ const (
 	ReqFail        = "fail"
 	ReqUnverified  = "unverified"
 	ReqUnknown     = "unknown"
+	ReqWaived      = "waived"
 	ReqNotAffected = "not_affected"
 )
 
@@ -43,10 +44,27 @@ type Result struct {
 	ChangeSpec       *ChangeSpecRef      `json:"change_spec"`
 	Requirements     []RequirementResult `json:"requirements"`
 	Checks           []CheckResult       `json:"checks"`
-	Waivers          []any               `json:"waivers"`
-	ContractChanges  []any               `json:"contract_changes"`
+	Waivers          []Waiver            `json:"waivers"`
+	ContractChanges  []ContractChange    `json:"contract_changes"`
 	ChangeFindings   []ChangeFinding     `json:"change_findings"`
 	Summary          Summary             `json:"summary"`
+}
+
+// Waiver records an applied Change Spec waiver.
+type Waiver struct {
+	ID          string `json:"id"`
+	Requirement string `json:"requirement"`
+	Reason      string `json:"reason"`
+	Owner       string `json:"owner,omitempty"`
+	Approver    string `json:"approver,omitempty"`
+	Expires     string `json:"expires"`
+}
+
+// ContractChange reports Product Contract weakening relative to the base commit.
+type ContractChange struct {
+	Type    string `json:"type"`
+	Summary string `json:"summary"`
+	ID      string `json:"id,omitempty"`
 }
 
 // ChangeSpecRef identifies the selected Change Spec.

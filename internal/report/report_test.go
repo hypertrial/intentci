@@ -27,8 +27,8 @@ func sampleResult(status string) *protocol.Result {
 			{ID: "B-001", Title: "bad", Status: protocol.ReqFail, Severity: "blocking", AffectedBy: []string{"x.go"}, Checks: []protocol.CheckRef{}, Evidence: []protocol.Evidence{}, Findings: []protocol.Finding{{Type: "deterministic_failure", Summary: "boom"}}, Reason: "failed"},
 		},
 		Checks:          []protocol.CheckResult{},
-		Waivers:         []any{},
-		ContractChanges: []any{},
+		Waivers:         []protocol.Waiver{},
+		ContractChanges: []protocol.ContractChange{},
 		Summary:         protocol.Summary{Pass: 1, Fail: 1, ChecksExecuted: 1, ChecksCached: 2},
 	}
 }

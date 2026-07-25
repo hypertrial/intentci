@@ -13,7 +13,17 @@ type Spec struct {
 	Acceptance            []Acceptance      `yaml:"acceptance" json:"acceptance"`
 	AffectedRequirements  []string          `yaml:"affected_requirements" json:"affected_requirements"`
 	RequiredChecks        []string          `yaml:"required_checks" json:"required_checks"`
-	Waivers               []map[string]any  `yaml:"waivers" json:"waivers"`
+	Waivers               []Waiver          `yaml:"waivers" json:"waivers"`
+}
+
+// Waiver is an explicit, time-bounded skip for a requirement or acceptance criterion.
+type Waiver struct {
+	ID          string `yaml:"id" json:"id"`
+	Requirement string `yaml:"requirement" json:"requirement"`
+	Reason      string `yaml:"reason" json:"reason"`
+	Owner       string `yaml:"owner" json:"owner"`
+	Approver    string `yaml:"approver" json:"approver"`
+	Expires     string `yaml:"expires" json:"expires"`
 }
 
 // Source cites external provenance.
