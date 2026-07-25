@@ -28,10 +28,39 @@ type Policy struct {
 	Semantic         SemanticPolicy `yaml:"semantic" json:"semantic"`
 }
 
-// SemanticPolicy is accepted but unused in v0.1.0.
+// SemanticPolicy configures optional semantic verification.
 type SemanticPolicy struct {
-	Enabled     bool   `yaml:"enabled" json:"enabled"`
-	Enforcement string `yaml:"enforcement" json:"enforcement"`
+	Enabled             bool             `yaml:"enabled" json:"enabled"`
+	Enforcement         string           `yaml:"enforcement" json:"enforcement"`
+	ConfidenceThreshold *float64         `yaml:"confidence_threshold" json:"confidence_threshold"`
+	Provider            *SemanticProvider `yaml:"provider" json:"provider"`
+}
+
+// SemanticProvider is a local executable or HTTP JSON endpoint.
+type SemanticProvider struct {
+	Type    string `yaml:"type" json:"type"`
+	Command string `yaml:"command" json:"command"`
+	URL     string `yaml:"url" json:"url"`
+	Timeout string `yaml:"timeout" json:"timeout"`
+}
+
+// DefaultConfidenceThreshold is used when confidence_threshold is omitted.
+const DefaultConfidenceThreshold = 0.8
+
+// ConfidenceThresholdOrDefault returns the configured threshold or the default.
+func (p SemanticPolicy) ConfidenceThresholdOrDefault() float64 {
+	if p.ConfidenceThreshold == nil {
+		return DefaultConfidenceThreshold
+	}
+	return *p.ConfidenceThreshold
+}
+
+// EnforcementOrDefault returns advisory when unset.
+func (p SemanticPolicy) EnforcementOrDefault() string {
+	if p.Enforcement == "" {
+		return "advisory"
+	}
+	return p.Enforcement
 }
 
 // Execution controls check scheduling.

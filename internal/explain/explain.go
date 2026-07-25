@@ -124,7 +124,7 @@ func explainRequirement(opt Options, c *contract.Contract, state *git.State, las
 		fmt.Fprintln(w, "    (none)")
 	}
 	writeRecent(w, last, req.ID)
-	fmt.Fprintln(w, "  Semantic findings: (not available in v0.2)")
+	writeSemanticFindings(w, last, req.ID)
 	return nil
 }
 
@@ -167,7 +167,7 @@ func explainAcceptance(opt Options, c *contract.Contract, state *git.State, last
 		fmt.Fprintf(w, "    - %s\n", f)
 	}
 	writeRecent(w, last, ac.ID)
-	fmt.Fprintln(w, "  Semantic findings: (not available in v0.2)")
+	writeSemanticFindings(w, last, ac.ID)
 	return nil
 }
 
@@ -190,4 +190,43 @@ func writeRecent(w io.Writer, last *protocol.Result, id string) {
 		}
 	}
 	fmt.Fprintln(w, "    (not present in last result)")
+}
+
+func writeSemanticFindings(w io.Writer, last *protocol.Result, id string) {
+	fmt.Fprintln(w, "  Semantic findings:")
+	if last == nil {
+		fmt.Fprintln(w, "    (none)")
+		return
+	}
+	if last.Semantic != nil && last.Semantic.Skipped != "" && last.Semantic.FindingCount == 0 {
+		fmt.Fprintf(w, "    (skipped: %s)\n", last.Semantic.Skipped)
+	}
+	found := false
+	for _, r := range last.Requirements {
+		if r.ID != id {
+			continue
+		}
+		for _, f := range r.Findings {
+			if strings.HasPrefix(f.Type, "semantic_") {
+				fmt.Fprintf(w, "    - %s: %s\n", f.Type, f.Summary)
+				found = true
+			}
+		}
+		for _, e := range r.Evidence {
+			if e.Type == "semantic" {
+				loc := e.Path
+				if e.LineStart > 0 {
+					loc = fmt.Sprintf("%s:%d", e.Path, e.LineStart)
+					if e.LineEnd > e.LineStart {
+						loc = fmt.Sprintf("%s:%d-%d", e.Path, e.LineStart, e.LineEnd)
+					}
+				}
+				fmt.Fprintf(w, "    - evidence: %s\n", loc)
+				found = true
+			}
+		}
+	}
+	if !found {
+		fmt.Fprintln(w, "    (none)")
+	}
 }

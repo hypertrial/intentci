@@ -13,14 +13,15 @@ import (
 )
 
 type runFlags struct {
-	base    string
-	all     bool
-	format  string
-	output  string
-	trust   bool
-	change  string
-	noCache bool
-	attest  bool
+	base              string
+	all               bool
+	format            string
+	output            string
+	trust             bool
+	change            string
+	noCache           bool
+	attest            bool
+	showSemanticInput bool
 }
 
 func newCheckCmd() *cobra.Command {
@@ -51,17 +52,18 @@ func newRunCmd(use, profile, short string, allowAttest bool) *cobra.Command {
 				return exitErr(20, fmt.Errorf("unsupported format %q (want text|json)", f.format))
 			}
 			outcome, err := verify.Run(context.Background(), verify.Options{
-				Root:     root,
-				Base:     f.base,
-				Profile:  profile,
-				All:      f.all,
-				Trust:    f.trust,
-				ChangeID: f.change,
-				NoCache:  f.noCache,
-				Attest:   allowAttest && f.attest,
-				Stdout:   cmd.OutOrStdout(),
-				Stderr:   cmd.ErrOrStderr(),
-				Stream:   f.format != "json",
+				Root:              root,
+				Base:              f.base,
+				Profile:           profile,
+				All:               f.all,
+				Trust:             f.trust,
+				ChangeID:          f.change,
+				NoCache:           f.noCache,
+				Attest:            allowAttest && f.attest,
+				ShowSemanticInput: allowAttest && f.showSemanticInput,
+				Stdout:            cmd.OutOrStdout(),
+				Stderr:            cmd.ErrOrStderr(),
+				Stream:            f.format != "json",
 			})
 			if err != nil {
 				code := 30
@@ -69,6 +71,10 @@ func newRunCmd(use, profile, short string, allowAttest bool) *cobra.Command {
 					code = outcome.ExitCode
 				}
 				return exitErr(code, err)
+			}
+			if outcome.Result == nil {
+				// --show-semantic-input already wrote JSON to stdout.
+				return nil
 			}
 			if err := report.Write(f.format, f.output, outcome.Result, cmd.OutOrStdout()); err != nil {
 				return exitErr(30, err)
@@ -88,6 +94,7 @@ func newRunCmd(use, profile, short string, allowAttest bool) *cobra.Command {
 	cmd.Flags().BoolVar(&f.noCache, "no-cache", false, "Disable the successful-check cache")
 	if allowAttest {
 		cmd.Flags().BoolVar(&f.attest, "attest", false, "Write a PASS-only attestation under .intentci/tmp/")
+		cmd.Flags().BoolVar(&f.showSemanticInput, "show-semantic-input", false, "Print semantic provider request JSON and exit without calling the provider")
 	}
 	return cmd
 }

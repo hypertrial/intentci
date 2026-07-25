@@ -17,7 +17,7 @@ IntentCI does not replace unit tests, linters, or remote CI. It answers:
 
 ## Status
 
-**v0.3.0** — Local workflow hardening: hooks, `--attest`, contract-weakening, JUnit parsing, and Change Spec waivers, with a CI-enforced 100% statement coverage gate. See [docs/v0.3.md](docs/v0.3.md), [docs/acceptance-v0.3.md](docs/acceptance-v0.3.md), [docs/roadmap.md](docs/roadmap.md), and [v1.md](v1.md).
+**v0.4.0** — Semantic verification: optional local/HTTP providers, structured findings with evidence citations, deterministic failures outrank semantic assessments, and `verify --show-semantic-input`, with a CI-enforced 100% statement coverage gate. See [docs/v0.4.md](docs/v0.4.md), [docs/acceptance-v0.4.md](docs/acceptance-v0.4.md), [docs/roadmap.md](docs/roadmap.md), and [v1.md](v1.md).
 
 ## Install
 
@@ -104,15 +104,41 @@ Missing base references exit with code `21` rather than silently falling back.
 Common flags for `check` / `verify`:
 
 ```text
---base <ref>          Comparison base (default: policy.default_base)
---all                 Verify all approved blocking requirements
---change <id>         Change Spec id (verify scoped ACs / affected requirements)
---format text|json    Output format
---output <path>       Write report to a file
---trust               Trust this repository for local command execution
---no-cache            Disable the successful-check cache
---attest              (verify only) Write PASS-only attestation under .intentci/tmp/
+--base <ref>              Comparison base (default: policy.default_base)
+--all                     Verify all approved blocking requirements
+--change <id>             Change Spec id (verify scoped ACs / affected requirements)
+--format text|json        Output format
+--output <path>           Write report to a file
+--trust                   Trust this repository for local command execution
+--no-cache                Disable the successful-check cache
+--attest                  (verify only) Write PASS-only attestation under .intentci/tmp/
+--show-semantic-input     (verify only) Print semantic provider request JSON; do not call provider
 ```
+
+### Semantic verification (optional)
+
+Semantic analysis is off by default. Enable it in `.intentci/contract.yaml`:
+
+```yaml
+policy:
+  semantic:
+    enabled: true
+    enforcement: advisory   # or blocking
+    confidence_threshold: 0.8
+    provider:
+      type: local           # or http
+      command: ./tools/intentci-semantic
+      # url: https://semantic.example/v1
+      timeout: 2m
+```
+
+IntentCI posts a versioned JSON request to the provider and merges structured findings. HTTP credentials use `INTENTCI_SEMANTIC_TOKEN` only (never repository config). Inspect what would be sent (no checks, trust prompt, or provider call):
+
+```bash
+intentci verify --show-semantic-input
+```
+
+No repository content is sent over the network unless `provider.type: http` is configured. Provider credentials must use `INTENTCI_SEMANTIC_TOKEN`, not URL userinfo.
 
 Git hooks are bypassable with `git push --no-verify` and are not organizational enforcement. Trust the repository once (`--trust` or interactive prompt) before relying on the pre-push hook, which runs `intentci verify --attest` without `--trust`.
 

@@ -120,7 +120,15 @@ func renderContract(name string, drafts []draftCheck) string {
 	b.WriteString("policy:\n")
 	b.WriteString("  default_base: origin/main\n")
 	b.WriteString("  unknown_blocks: true\n")
-	b.WriteString("  unverified_blocks: true\n\n")
+	b.WriteString("  unverified_blocks: true\n")
+	b.WriteString("  # semantic:\n")
+	b.WriteString("  #   enabled: true\n")
+	b.WriteString("  #   enforcement: advisory\n")
+	b.WriteString("  #   confidence_threshold: 0.8\n")
+	b.WriteString("  #   provider:\n")
+	b.WriteString("  #     type: local\n")
+	b.WriteString("  #     command: ./tools/intentci-semantic\n")
+	b.WriteString("  #     timeout: 2m\n\n")
 	b.WriteString("requirements:\n")
 	if len(drafts) > 0 {
 		d := drafts[0]

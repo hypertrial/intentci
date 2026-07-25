@@ -47,7 +47,17 @@ type Result struct {
 	Waivers          []Waiver            `json:"waivers"`
 	ContractChanges  []ContractChange    `json:"contract_changes"`
 	ChangeFindings   []ChangeFinding     `json:"change_findings"`
+	Semantic         *SemanticRun        `json:"semantic,omitempty"`
 	Summary          Summary             `json:"summary"`
+}
+
+// SemanticRun summarizes optional semantic verification for a run.
+type SemanticRun struct {
+	Enabled      bool   `json:"enabled"`
+	Provider     string `json:"provider,omitempty"`
+	Enforcement  string `json:"enforcement,omitempty"`
+	Skipped      string `json:"skipped,omitempty"`
+	FindingCount int    `json:"finding_count"`
 }
 
 // Waiver records an applied Change Spec waiver.

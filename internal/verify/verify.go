@@ -21,23 +21,25 @@ import (
 	"github.com/hypertrial/intentci/internal/impact"
 	"github.com/hypertrial/intentci/internal/runner"
 	"github.com/hypertrial/intentci/internal/scheduler"
+	"github.com/hypertrial/intentci/internal/semantic"
 	"github.com/hypertrial/intentci/internal/trust"
 	"github.com/hypertrial/intentci/pkg/protocol"
 )
 
 // Options configures a verification run.
 type Options struct {
-	Root     string
-	Base     string
-	Profile  string
-	All      bool
-	Trust    bool
-	ChangeID string
-	NoCache  bool
-	Attest   bool
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Stream   bool
+	Root              string
+	Base              string
+	Profile           string
+	All               bool
+	Trust             bool
+	ChangeID          string
+	NoCache           bool
+	Attest            bool
+	ShowSemanticInput bool
+	Stdout            io.Writer
+	Stderr            io.Writer
+	Stream            bool
 }
 
 // Outcome is the verification result plus process exit code.
@@ -135,8 +137,9 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 				Status:    "approved",
 				Severity:  ac.Severity,
 				Verification: contract.Verification{
-					Mode:   "all",
-					Checks: ac.Verification.Checks,
+					Mode:     "all",
+					Checks:   ac.Verification.Checks,
+					Semantic: ac.Verification.Semantic,
 				},
 			})
 		}
@@ -157,6 +160,31 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 
 	sel := impact.Resolve(effective, state.ChangedFiles, impactOpt)
 	contractHash := contract.Hash(raw)
+
+	// Privacy preview: build and print semantic input without running checks or providers.
+	if opt.ShowSemanticInput {
+		semOut, err := runSemantic(ctx, semantic.RunOptions{
+			Root:              opt.Root,
+			Profile:           opt.Profile,
+			BaseCommit:        state.MergeBaseFull,
+			HeadCommit:        state.HeadCommit,
+			ChangedFiles:      state.ChangedFiles,
+			Contract:          effective,
+			Change:            change,
+			Selection:         sel,
+			CheckResults:      map[string]runner.Result{},
+			ShowSemanticInput: true,
+			Stdout:            opt.Stdout,
+			TrustLocal:        true, // no local provider execution on preview
+		})
+		if err != nil {
+			return &Outcome{ExitCode: 30}, err
+		}
+		if !semOut.ShowedInput {
+			return &Outcome{ExitCode: 30}, fmt.Errorf("failed to render semantic input")
+		}
+		return &Outcome{ExitCode: 0}, nil
+	}
 
 	var store *cache.Store
 	if !opt.NoCache {
@@ -192,6 +220,40 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 	}
 
 	reqResults := evidence.Assign(sel, checkResults, opt.Profile, effective, waived)
+
+	semOut, err := runSemantic(ctx, semantic.RunOptions{
+		Root:         opt.Root,
+		Profile:      opt.Profile,
+		BaseCommit:   state.MergeBaseFull,
+		HeadCommit:   state.HeadCommit,
+		ChangedFiles: state.ChangedFiles,
+		Contract:     effective,
+		Change:       change,
+		Selection:    sel,
+		CheckResults: checkResults,
+		Stdout:       opt.Stdout,
+		TrustLocal:   opt.Trust,
+		EnsureTrust: func() error {
+			return trust.Ensure(opt.Root, opt.Trust, os.Stdin, opt.Stderr)
+		},
+	})
+	if err != nil {
+		return &Outcome{ExitCode: 30}, err
+	}
+
+	mergeOpt := semantic.MergeOptions{
+		Policy:        effective.Policy.Semantic,
+		Contract:      effective,
+		SemanticModes: semantic.ModesFromSelection(sel),
+	}
+	if effective.Policy.Semantic.Enabled {
+		if semOut.ProviderErr != nil {
+			reqResults = semantic.MarkUnavailable(reqResults, mergeOpt, semOut.ProviderErr.Error())
+		} else if len(semOut.Findings) > 0 {
+			reqResults = semantic.Apply(reqResults, semOut.Findings, mergeOpt)
+		}
+	}
+
 	status, exitCode := evidence.Overall(reqResults, effective.Policy)
 
 	// Contract-approval gate: weakenings without type:contract force unverified.
@@ -262,6 +324,7 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		Waivers:          waiverList,
 		ContractChanges:  contractChanges,
 		ChangeFindings:   findings,
+		Semantic:         semOut.SemanticRun,
 		Summary:          summary,
 	}
 

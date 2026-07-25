@@ -3,6 +3,7 @@ package contract
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -42,6 +43,7 @@ func Validate(c *Contract) error {
 	validateDependencyCycles(c, ve)
 	validateGlobs(c, ve)
 	validateTimeouts(c, ve)
+	validateSemantic(c, ve)
 
 	if !ve.empty() {
 		return ve
@@ -98,8 +100,28 @@ func normalizeForSchema(m map[string]any) {
 		if semantic, ok := policy["semantic"].(map[string]any); ok {
 			enabled, hasEnabled := semantic["enabled"].(bool)
 			enforcement, _ := semantic["enforcement"].(string)
-			if (!hasEnabled || !enabled) && enforcement == "" {
+			provider, hasProvider := semantic["provider"]
+			_, hasThreshold := semantic["confidence_threshold"]
+			if (!hasEnabled || !enabled) && enforcement == "" && !hasProvider && !hasThreshold {
 				delete(policy, "semantic")
+			} else if hasProvider {
+				if pm, ok := provider.(map[string]any); ok {
+					if typ, ok := pm["type"].(string); ok && typ == "" {
+						delete(pm, "type")
+					}
+					if cmd, ok := pm["command"].(string); ok && cmd == "" {
+						delete(pm, "command")
+					}
+					if u, ok := pm["url"].(string); ok && u == "" {
+						delete(pm, "url")
+					}
+					if to, ok := pm["timeout"].(string); ok && to == "" {
+						delete(pm, "timeout")
+					}
+					if len(pm) == 0 {
+						delete(semantic, "provider")
+					}
+				}
 			}
 		}
 		if len(policy) == 0 {
@@ -292,6 +314,51 @@ func validateTimeouts(c *Contract, ve *ValidationError) {
 		}
 		if _, err := ParseTimeout(ch.Timeout); err != nil {
 			ve.add("check %q has invalid timeout %q: %v", ch.ID, ch.Timeout, err)
+		}
+	}
+}
+
+func validateSemantic(c *Contract, ve *ValidationError) {
+	sem := c.Policy.Semantic
+	if !sem.Enabled {
+		return
+	}
+	if sem.Enforcement != "advisory" && sem.Enforcement != "blocking" {
+		ve.add("policy.semantic.enforcement must be advisory or blocking when semantic is enabled")
+	}
+	if sem.ConfidenceThreshold != nil {
+		t := *sem.ConfidenceThreshold
+		if t <= 0 || t > 1 {
+			ve.add("policy.semantic.confidence_threshold must be in (0, 1]")
+		}
+	}
+	if sem.Provider == nil {
+		ve.add("policy.semantic.provider is required when semantic is enabled")
+		return
+	}
+	p := sem.Provider
+	switch p.Type {
+	case "local":
+		if strings.TrimSpace(p.Command) == "" {
+			ve.add("policy.semantic.provider.command is required when type is local")
+		}
+	case "http":
+		if strings.TrimSpace(p.URL) == "" {
+			ve.add("policy.semantic.provider.url is required when type is http")
+		} else {
+			u, err := url.Parse(p.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				ve.add("policy.semantic.provider.url must be an absolute http or https URL")
+			} else if u.User != nil {
+				ve.add("policy.semantic.provider.url must not embed credentials; use %s", "INTENTCI_SEMANTIC_TOKEN")
+			}
+		}
+	default:
+		ve.add("policy.semantic.provider.type must be local or http")
+	}
+	if p.Timeout != "" {
+		if _, err := ParseTimeout(p.Timeout); err != nil {
+			ve.add("policy.semantic.provider.timeout is invalid: %v", err)
 		}
 	}
 }

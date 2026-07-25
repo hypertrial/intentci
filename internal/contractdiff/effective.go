@@ -88,7 +88,29 @@ func stricterPolicy(base, head contract.Policy) contract.Policy {
 		t := true
 		p.UnverifiedBlocks = &t
 	}
+	p.Semantic = stricterSemantic(base.Semantic, head.Semantic)
 	return p
+}
+
+func stricterSemantic(base, head contract.SemanticPolicy) contract.SemanticPolicy {
+	out := head
+	if base.Enabled {
+		out.Enabled = true
+		if base.EnforcementOrDefault() == "blocking" {
+			out.Enforcement = "blocking"
+		} else if out.Enforcement == "" {
+			out.Enforcement = base.EnforcementOrDefault()
+		}
+		if base.ConfidenceThresholdOrDefault() > out.ConfidenceThresholdOrDefault() {
+			t := base.ConfidenceThresholdOrDefault()
+			out.ConfidenceThreshold = &t
+		}
+		if base.Provider != nil && (out.Provider == nil || providerChanged(base.Provider, out.Provider)) {
+			cp := *base.Provider
+			out.Provider = &cp
+		}
+	}
+	return out
 }
 
 func weakened(base, head contract.Requirement) bool {
@@ -105,6 +127,9 @@ func weakened(base, head contract.Requirement) bool {
 		return true
 	}
 	if narrowedAppliesTo(base.AppliesTo, head.AppliesTo) {
+		return true
+	}
+	if semanticRequirementWeakened(base.Verification.Semantic, head.Verification.Semantic) {
 		return true
 	}
 	return false

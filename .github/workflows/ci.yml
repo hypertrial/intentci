@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.3.0" -o dist/intentci_linux_amd64 ./cmd/intentci
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.3.0" -o dist/intentci_darwin_amd64 ./cmd/intentci
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.3.0" -o dist/intentci_darwin_arm64 ./cmd/intentci
+          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_linux_amd64 ./cmd/intentci
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_darwin_amd64 ./cmd/intentci
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_darwin_arm64 ./cmd/intentci
           ls -la dist

@@ -44,6 +44,18 @@ func WriteText(w io.Writer, res *protocol.Result) error {
 	if res.WorkingTreeDirty {
 		fmt.Fprintln(&b, "Worktree: dirty")
 	}
+	if res.Semantic != nil {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Semantic")
+		if !res.Semantic.Enabled {
+			fmt.Fprintln(&b, "  disabled")
+		} else if res.Semantic.Skipped != "" {
+			fmt.Fprintf(&b, "  skipped: %s\n", res.Semantic.Skipped)
+		} else {
+			fmt.Fprintf(&b, "  provider: %s (%s)\n", res.Semantic.Provider, res.Semantic.Enforcement)
+			fmt.Fprintf(&b, "  findings: %d\n", res.Semantic.FindingCount)
+		}
+	}
 	if len(res.ChangeFindings) > 0 {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Change Spec findings")

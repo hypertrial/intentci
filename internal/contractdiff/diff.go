@@ -27,6 +27,7 @@ func Diff(base, head *contract.Contract) []protocol.ContractChange {
 			Summary: "policy.unverified_blocks was disabled relative to the base commit.",
 		})
 	}
+	out = append(out, semanticPolicyWeakenings(base.Policy.Semantic, head.Policy.Semantic)...)
 	baseReqs := indexReqs(base.Requirements)
 	headReqs := indexReqs(head.Requirements)
 	baseChecks := indexChecks(base.Checks)
@@ -73,15 +74,12 @@ func Diff(base, head *contract.Contract) []protocol.ContractChange {
 				Summary: fmt.Sprintf("Requirement %s verification mode narrowed from all to any.", id),
 			})
 		}
-		if br.Verification.Semantic != "off" && br.Verification.Semantic != "" &&
-			(hr.Verification.Semantic == "off" || hr.Verification.Semantic == "") {
-			if br.Verification.Semantic == "required" || hr.Verification.Semantic == "off" {
-				out = append(out, protocol.ContractChange{
-					Type:    "semantic_disabled",
-					ID:      id,
-					Summary: fmt.Sprintf("Requirement %s disabled required semantic analysis.", id),
-				})
-			}
+		if semanticRequirementWeakened(br.Verification.Semantic, hr.Verification.Semantic) {
+			out = append(out, protocol.ContractChange{
+				Type:    "semantic_disabled",
+				ID:      id,
+				Summary: fmt.Sprintf("Requirement %s disabled or weakened semantic analysis.", id),
+			})
 		}
 		removedChecks := missingStrings(br.Verification.Checks, hr.Verification.Checks)
 		for _, cid := range removedChecks {
@@ -231,4 +229,71 @@ func sortedCopy(in []string) []string {
 	out := append([]string{}, in...)
 	sort.Strings(out)
 	return out
+}
+
+func semanticPolicyWeakenings(base, head contract.SemanticPolicy) []protocol.ContractChange {
+	var out []protocol.ContractChange
+	if base.Enabled && !head.Enabled {
+		out = append(out, protocol.ContractChange{
+			Type:    "semantic_policy_disabled",
+			Summary: "policy.semantic.enabled was disabled relative to the base commit.",
+		})
+	}
+	if base.Enabled && head.Enabled {
+		if base.EnforcementOrDefault() == "blocking" && head.EnforcementOrDefault() == "advisory" {
+			out = append(out, protocol.ContractChange{
+				Type:    "semantic_enforcement_softened",
+				Summary: "policy.semantic.enforcement was softened from blocking to advisory.",
+			})
+		}
+		if base.ConfidenceThresholdOrDefault() > head.ConfidenceThresholdOrDefault() {
+			out = append(out, protocol.ContractChange{
+				Type:    "semantic_threshold_lowered",
+				Summary: "policy.semantic.confidence_threshold was lowered relative to the base commit.",
+			})
+		}
+		if base.Provider != nil && head.Provider == nil {
+			out = append(out, protocol.ContractChange{
+				Type:    "semantic_provider_removed",
+				Summary: "policy.semantic.provider was removed relative to the base commit.",
+			})
+		} else if providerChanged(base.Provider, head.Provider) {
+			out = append(out, protocol.ContractChange{
+				Type:    "semantic_provider_changed",
+				Summary: "policy.semantic.provider was changed relative to the base commit.",
+			})
+		}
+	}
+	return out
+}
+
+func providerChanged(base, head *contract.SemanticProvider) bool {
+	if base == nil || head == nil {
+		return false
+	}
+	return base.Type != head.Type || base.Command != head.Command || base.URL != head.URL
+}
+
+func semanticRequirementWeakened(base, head string) bool {
+	rank := func(s string) int {
+		switch normalizeSemanticMode(s) {
+		case "required":
+			return 2
+		case "optional":
+			return 1
+		default: // off
+			return 0
+		}
+	}
+	return rank(base) > rank(head)
+}
+
+func normalizeSemanticMode(s string) string {
+	switch s {
+	case "required", "optional", "off":
+		return s
+	default:
+		// Omitted/empty matches runtime default (optional).
+		return "optional"
+	}
 }

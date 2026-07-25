@@ -38,6 +38,27 @@
             "enforcement": {
               "type": "string",
               "enum": ["advisory", "blocking"]
+            },
+            "confidence_threshold": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "provider": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["local", "http"]
+                },
+                "command": { "type": "string", "minLength": 1 },
+                "url": { "type": "string", "minLength": 1 },
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ms|s|m|h)$"
+                }
+              }
             }
           }
         }

@@ -64,6 +64,17 @@
     "waivers": { "type": "array" },
     "contract_changes": { "type": "array" },
     "change_findings": { "type": "array" },
+    "semantic": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "provider": { "type": "string" },
+        "enforcement": { "type": "string" },
+        "skipped": { "type": "string" },
+        "finding_count": { "type": "integer" }
+      }
+    },
     "summary": {
       "type": "object",
       "required": ["pass", "fail", "unverified", "unknown", "waived"],
