@@ -1,0 +1,39 @@
+version: 1
+
+product:
+  name: go-service
+  purpose: Example fixture service for IntentCI verification.
+  non_goals:
+    - Production use
+
+policy:
+  default_base: HEAD~1
+  unknown_blocks: true
+  unverified_blocks: true
+
+requirements:
+  - id: MATH-001
+    type: invariant
+    title: Addition is correct
+    statement: Add must return the sum of its operands.
+    status: approved
+    severity: blocking
+    applies_to:
+      include:
+        - "pkg/counter/**"
+    verification:
+      mode: all
+      checks:
+        - counter-unit
+
+checks:
+  - id: counter-unit
+    description: Counter package unit tests
+    command: go test ./pkg/counter
+    profiles:
+      - fast
+      - full
+    inputs:
+      - "pkg/counter/**"
+    timeout: 2m
+    cache: success

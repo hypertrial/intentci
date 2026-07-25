@@ -1,0 +1,3 @@
+# IntentCI local artifacts
+tmp/
+*.log
