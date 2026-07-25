@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentci.dev/schemas/changespec-v1.json",
+  "title": "IntentCI Change Spec",
+  "type": "object",
+  "required": ["version", "id", "status", "type", "summary", "goals", "acceptance"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*-[0-9A-Z]+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "approved"]
+    },
+    "type": {
+      "type": "string",
+      "enum": ["feature", "bugfix", "refactor", "docs", "chore", "contract"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "reference": { "type": "string" }
+      }
+    },
+    "goals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "non_goals": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "acceptance": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/acceptance" },
+      "minItems": 1
+    },
+    "affected_requirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_checks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "acceptance": {
+      "type": "object",
+      "required": ["id", "statement", "severity", "verification"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^AC-[0-9]+$"
+        },
+        "statement": { "type": "string", "minLength": 1 },
+        "severity": {
+          "type": "string",
+          "enum": ["blocking", "advisory"]
+        },
+        "verification": {
+          "type": "object",
+          "required": ["checks"],
+          "additionalProperties": false,
+          "properties": {
+            "checks": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            },
+            "semantic": {
+              "type": "string",
+              "enum": ["required", "optional", "off"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

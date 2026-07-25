@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -9,8 +10,21 @@ import (
 	"github.com/hypertrial/intentci/internal/version"
 )
 
-// Execute runs the root command.
+// Execute runs the root command using process args/stdio.
 func Execute() error {
+	return ExecuteWith(os.Args[1:], os.Stdout, os.Stderr)
+}
+
+// ExecuteWith runs the root command with explicit args and writers.
+func ExecuteWith(args []string, stdout, stderr io.Writer) error {
+	root := newRoot()
+	root.SetArgs(args)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	return root.Execute()
+}
+
+func newRoot() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "intentci",
 		Short:         "CI for product intent",
@@ -22,6 +36,8 @@ func Execute() error {
 	root.AddCommand(newValidateCmd())
 	root.AddCommand(newCheckCmd())
 	root.AddCommand(newVerifyCmd())
+	root.AddCommand(newChangeCmd())
+	root.AddCommand(newExplainCmd())
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print IntentCI version",
@@ -29,18 +45,23 @@ func Execute() error {
 			fmt.Fprintln(cmd.OutOrStdout(), version.String())
 		},
 	})
-	return root.Execute()
+	return root
 }
 
 // Main is the process entry used by cmd/intentci.
 func Main() int {
-	err := Execute()
+	return RunMain(os.Args[1:], os.Stdout, os.Stderr)
+}
+
+// RunMain executes IntentCI and returns an exit code.
+func RunMain(args []string, stdout, stderr io.Writer) int {
+	err := ExecuteWith(args, stdout, stderr)
 	if err == nil {
 		return 0
 	}
 	code := CodeOf(err)
 	if msg := err.Error(); msg != "" {
-		fmt.Fprintln(os.Stderr, msg)
+		fmt.Fprintln(stderr, msg)
 	}
 	return code
 }

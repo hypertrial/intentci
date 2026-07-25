@@ -98,9 +98,6 @@ func Assign(sel impact.Selection, checkResults map[string]runner.Result, profile
 		}
 
 		rr.Status, rr.Reason = resolveStatus(mode, passN, failN, unknownN, missingN, skippedN, len(r.Verification.Checks))
-		if rr.Status != protocol.ReqPass && rr.Reason == "" && len(rr.Findings) > 0 {
-			rr.Reason = rr.Findings[0].Summary
-		}
 		if rr.Status != protocol.ReqPass {
 			rr.Findings = appendCompletion(rr.Findings, r)
 		}

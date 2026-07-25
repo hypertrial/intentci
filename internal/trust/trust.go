@@ -11,9 +11,21 @@ import (
 	"strings"
 )
 
+// userConfigDir is overridable in tests.
+var userConfigDir = os.UserConfigDir
+var mkdirAllTrust = os.MkdirAll
+var openFileTrust = os.OpenFile
+
+// SetUserConfigDir overrides userConfigDir and returns the previous function.
+func SetUserConfigDir(fn func() (string, error)) func() (string, error) {
+	prev := userConfigDir
+	userConfigDir = fn
+	return prev
+}
+
 // StorePath returns the trusted-repos file path.
 func StorePath() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := userConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -33,13 +45,21 @@ func IsTrusted(root string) (bool, error) {
 		}
 		return false, err
 	}
-	key := keyFor(root)
+	abs, err := absPath(root)
+	if err != nil {
+		abs = root
+	}
+	key := keyFor(abs)
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if line == key || line == root {
+		fields := strings.Fields(line)
+		if fields[0] == key || fields[0] == abs || line == abs {
+			return true, nil
+		}
+		if len(fields) > 1 && fields[1] == abs {
 			return true, nil
 		}
 	}
@@ -48,7 +68,7 @@ func IsTrusted(root string) (bool, error) {
 
 // Trust marks root as trusted.
 func Trust(root string) error {
-	abs, err := filepath.Abs(root)
+	abs, err := absPath(root)
 	if err != nil {
 		return err
 	}
@@ -56,7 +76,7 @@ func Trust(root string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := mkdirAllTrust(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	ok, err := IsTrusted(abs)
@@ -66,7 +86,7 @@ func Trust(root string) error {
 	if ok {
 		return nil
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := openFileTrust(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -108,7 +128,7 @@ Trust this repository? [y/N]: `, root)
 }
 
 func keyFor(root string) string {
-	abs, err := filepath.Abs(root)
+	abs, err := absPath(root)
 	if err != nil {
 		abs = root
 	}

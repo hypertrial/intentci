@@ -23,6 +23,7 @@ func WriteJSON(w io.Writer, res *protocol.Result) error {
 
 // WriteText writes the human-readable report.
 func WriteText(w io.Writer, res *protocol.Result) error {
+	var b strings.Builder
 	title := "IntentCI verification passed"
 	switch res.Status {
 	case protocol.StatusFail:
@@ -32,98 +33,62 @@ func WriteText(w io.Writer, res *protocol.Result) error {
 	case protocol.StatusUnknown:
 		title = "IntentCI verification unknown"
 	}
-	if _, err := fmt.Fprintln(w, title); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "Base:   %s\n", res.BaseCommit); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "Head:   %s\n", res.HeadCommit); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "Profile: %s\n", res.Profile); err != nil {
-		return err
+	fmt.Fprintln(&b, title)
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Base:   %s\n", res.BaseCommit)
+	fmt.Fprintf(&b, "Head:   %s\n", res.HeadCommit)
+	fmt.Fprintf(&b, "Profile: %s\n", res.Profile)
+	if res.ChangeSpec != nil {
+		fmt.Fprintf(&b, "Change: %s\n", res.ChangeSpec.ID)
 	}
 	if res.WorkingTreeDirty {
-		if _, err := fmt.Fprintln(w, "Worktree: dirty"); err != nil {
-			return err
+		fmt.Fprintln(&b, "Worktree: dirty")
+	}
+	if len(res.ChangeFindings) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Change Spec findings")
+		for _, f := range res.ChangeFindings {
+			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
 		}
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, "Requirements"); err != nil {
-		return err
-	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "Requirements")
 	if len(res.Requirements) == 0 {
-		if _, err := fmt.Fprintln(w, "  (none affected)"); err != nil {
-			return err
-		}
+		fmt.Fprintln(&b, "  (none affected)")
 	}
 	for _, r := range res.Requirements {
-		if _, err := fmt.Fprintf(w, "  %-11s %s  %s\n", strings.ToUpper(r.Status), r.ID, r.Title); err != nil {
-			return err
-		}
+		fmt.Fprintf(&b, "  %-11s %s  %s\n", strings.ToUpper(r.Status), r.ID, r.Title)
 	}
-
 	for _, r := range res.Requirements {
 		if r.Status == protocol.ReqPass || r.Status == protocol.ReqNotAffected {
 			continue
 		}
-		if _, err := fmt.Fprintln(w); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "%s — %s\n", r.ID, strings.ToUpper(r.Status)); err != nil {
-			return err
-		}
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "%s — %s\n", r.ID, strings.ToUpper(r.Status))
 		if len(r.AffectedBy) > 0 {
-			if _, err := fmt.Fprintln(w, "  Changed:"); err != nil {
-				return err
-			}
+			fmt.Fprintln(&b, "  Changed:")
 			for _, f := range r.AffectedBy {
-				if _, err := fmt.Fprintf(w, "    %s\n", f); err != nil {
-					return err
-				}
+				fmt.Fprintf(&b, "    %s\n", f)
 			}
 		}
 		for _, f := range r.Findings {
-			if _, err := fmt.Fprintf(w, "  %s: %s\n", f.Type, f.Summary); err != nil {
-				return err
-			}
+			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
 		}
 		if r.Reason != "" {
-			if _, err := fmt.Fprintf(w, "  Reason: %s\n", r.Reason); err != nil {
-				return err
-			}
+			fmt.Fprintf(&b, "  Reason: %s\n", r.Reason)
 		}
 	}
-
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, "Summary"); err != nil {
-		return err
-	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "Summary")
 	s := res.Summary
-	if _, err := fmt.Fprintf(w, "  %d passed\n", s.Pass); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "  %d failed\n", s.Fail); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "  %d unverified\n", s.Unverified); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "  %d unknown\n", s.Unknown); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "  %d checks executed\n", s.ChecksExecuted); err != nil {
-		return err
-	}
-	return nil
+	fmt.Fprintf(&b, "  %d passed\n", s.Pass)
+	fmt.Fprintf(&b, "  %d failed\n", s.Fail)
+	fmt.Fprintf(&b, "  %d unverified\n", s.Unverified)
+	fmt.Fprintf(&b, "  %d unknown\n", s.Unknown)
+	fmt.Fprintf(&b, "  %d checks executed\n", s.ChecksExecuted)
+	fmt.Fprintf(&b, "  %d checks cached\n", s.ChecksCached)
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
 // Write writes according to format and optional output path.
@@ -149,27 +114,32 @@ func Write(format, output string, res *protocol.Result, stdout io.Writer) error 
 	}
 }
 
+var (
+	resultSchemaJSON = func() []byte { return appschema.ResultJSON }
+	addSchemaResource = func(c *jsonschema.Compiler, url string, doc any) error {
+		return c.AddResource(url, doc)
+	}
+	compileSchemaURL = func(c *jsonschema.Compiler, url string) (*jsonschema.Schema, error) {
+		return c.Compile(url)
+	}
+)
+
 // ValidateResultSchema validates a result against the published schema.
 func ValidateResultSchema(res *protocol.Result) error {
-	b, err := json.Marshal(res)
-	if err != nil {
-		return err
-	}
+	b, _ := json.Marshal(res)
 	compiler := jsonschema.NewCompiler()
-	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(appschema.ResultJSON))
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(resultSchemaJSON()))
 	if err != nil {
 		return err
 	}
-	if err := compiler.AddResource("https://intentci.dev/schemas/result-v1.json", doc); err != nil {
+	if err := addSchemaResource(compiler, "https://intentci.dev/schemas/result-v1.json", doc); err != nil {
 		return err
 	}
-	sch, err := compiler.Compile("https://intentci.dev/schemas/result-v1.json")
+	sch, err := compileSchemaURL(compiler, "https://intentci.dev/schemas/result-v1.json")
 	if err != nil {
 		return err
 	}
 	var m any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return err
-	}
+	_ = json.Unmarshal(b, &m)
 	return sch.Validate(m)
 }

@@ -1,0 +1,29 @@
+version: 1
+
+id: MATH-1
+status: approved
+type: bugfix
+
+summary: Keep counter addition correct under change verification.
+
+goals:
+  - Preserve correct addition behavior.
+
+non_goals:
+  - Changing the public API surface.
+
+acceptance:
+  - id: AC-001
+    statement: Add returns the sum of its operands.
+    severity: blocking
+    verification:
+      checks:
+        - counter-unit
+
+affected_requirements:
+  - MATH-001
+
+required_checks:
+  - counter-unit
+
+waivers: []

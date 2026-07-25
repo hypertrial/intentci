@@ -49,25 +49,23 @@ func Validate(c *Contract) error {
 	return nil
 }
 
+// schemaJSON is overridable in tests.
+var (
+	schemaJSON = func() []byte { return appschema.ContractJSON }
+	addSchemaResource = func(c *jsonschema.Compiler, url string, doc any) error {
+		return c.AddResource(url, doc)
+	}
+	compileSchemaURL = func(c *jsonschema.Compiler, url string) (*jsonschema.Schema, error) {
+		return c.Compile(url)
+	}
+)
+
 func validateSchema(c *Contract) error {
-	compiler := jsonschema.NewCompiler()
-	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(appschema.ContractJSON))
+	sch, err := compileSchema(schemaJSON(), "https://intentci.dev/schemas/contract-v1.json")
 	if err != nil {
-		return fmt.Errorf("parse embedded contract schema: %w", err)
+		return err
 	}
-	if err := compiler.AddResource("https://intentci.dev/schemas/contract-v1.json", doc); err != nil {
-		return fmt.Errorf("add contract schema: %w", err)
-	}
-	sch, err := compiler.Compile("https://intentci.dev/schemas/contract-v1.json")
-	if err != nil {
-		return fmt.Errorf("compile contract schema: %w", err)
-	}
-	m, err := ToJSONMap(c)
-	if err != nil {
-		return fmt.Errorf("convert contract for schema validation: %w", err)
-	}
-	// Remove empty optional nested objects that YAML may omit as zero values
-	// but JSON marshal includes as empty objects violating additionalProperties.
+	m := ToJSONMap(c)
 	normalizeForSchema(m)
 	if err := sch.Validate(m); err != nil {
 		return fmt.Errorf("schema: %w", err)
@@ -75,9 +73,28 @@ func validateSchema(c *Contract) error {
 	return nil
 }
 
+func compileSchema(raw []byte, url string) (*jsonschema.Schema, error) {
+	compiler := jsonschema.NewCompiler()
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parse schema: %w", err)
+	}
+	if err := addSchemaResource(compiler, url, doc); err != nil {
+		return nil, fmt.Errorf("add schema: %w", err)
+	}
+	sch, err := compileSchemaURL(compiler, url)
+	if err != nil {
+		return nil, fmt.Errorf("compile schema: %w", err)
+	}
+	return sch, nil
+}
+
 func normalizeForSchema(m map[string]any) {
 	stripNulls(m)
 	if policy, ok := m["policy"].(map[string]any); ok {
+		if db, ok := policy["default_base"].(string); ok && db == "" {
+			delete(policy, "default_base")
+		}
 		if semantic, ok := policy["semantic"].(map[string]any); ok {
 			enabled, hasEnabled := semantic["enabled"].(bool)
 			enforcement, _ := semantic["enforcement"].(string)

@@ -63,6 +63,7 @@
     "checks": { "type": "array" },
     "waivers": { "type": "array" },
     "contract_changes": { "type": "array" },
+    "change_findings": { "type": "array" },
     "summary": {
       "type": "object",
       "required": ["pass", "fail", "unverified", "unknown", "waived"],
@@ -73,7 +74,8 @@
         "unknown": { "type": "integer" },
         "waived": { "type": "integer" },
         "not_affected": { "type": "integer" },
-        "checks_executed": { "type": "integer" }
+        "checks_executed": { "type": "integer" },
+        "checks_cached": { "type": "integer" }
       }
     }
   }

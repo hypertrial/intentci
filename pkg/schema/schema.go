@@ -10,3 +10,6 @@ var ContractJSON []byte
 
 //go:embed result.schema.json
 var ResultJSON []byte
+
+//go:embed changespec.schema.json
+var ChangeSpecJSON []byte

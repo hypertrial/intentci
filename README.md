@@ -17,7 +17,7 @@ IntentCI does not replace unit tests, linters, or remote CI. It answers:
 
 ## Status
 
-**v0.1.0** — MVP vertical slice. See [docs/v0.1.md](docs/v0.1.md) for scope, [docs/roadmap.md](docs/roadmap.md) for what comes next, and [docs/acceptance-v0.1.md](docs/acceptance-v0.1.md) for the release checklist. Full product specification: [v1.md](v1.md).
+**v0.2.0** — Change Specs, cache, explain, and a CI-enforced 100% statement coverage gate. See [docs/v0.2.md](docs/v0.2.md), [docs/acceptance-v0.2.md](docs/acceptance-v0.2.md), [docs/roadmap.md](docs/roadmap.md), and [v1.md](v1.md).
 
 ## Install
 
@@ -65,6 +65,16 @@ intentci check
 intentci verify --format json
 ```
 
+Create and validate Change Specs, then verify with the change and without cache:
+
+```bash
+intentci change create DEMO-1
+intentci validate
+intentci verify --change DEMO-1 --no-cache --trust
+intentci explain BUILD-001
+intentci explain AC-001 --change DEMO-1
+```
+
 5. Trust the repository on first run when prompted, or pass `--trust`.
 
 If `policy.default_base` (usually `origin/main`) is missing locally, pass an explicit base:
@@ -80,7 +90,9 @@ Missing base references exit with code `21` rather than silently falling back.
 | Command | Purpose |
 | --- | --- |
 | `intentci init` | Create `.intentci/` with a starter Product Contract |
-| `intentci validate` | Validate the Product Contract before running checks |
+| `intentci validate` | Validate the Product Contract and Change Specs |
+| `intentci change create <id>` | Create a draft Change Spec scaffold |
+| `intentci explain <id>` | Explain a requirement or acceptance criterion |
 | `intentci check` | Fast profile verification |
 | `intentci verify` | Full profile verification |
 | `intentci version` | Print version |
@@ -90,10 +102,14 @@ Common flags for `check` / `verify`:
 ```text
 --base <ref>          Comparison base (default: policy.default_base)
 --all                 Verify all approved blocking requirements
+--change <id>         Change Spec id (verify scoped ACs / affected requirements)
 --format text|json    Output format
 --output <path>       Write report to a file
 --trust               Trust this repository for local command execution
+--no-cache            Disable the successful-check cache
 ```
+
+CI runs `./scripts/check-coverage.sh`, which requires **100.0%** statement coverage across `./...`.
 
 ## Exit codes
 

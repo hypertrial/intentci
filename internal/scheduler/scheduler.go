@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 
+	"github.com/hypertrial/intentci/internal/cache"
 	"github.com/hypertrial/intentci/internal/contract"
 	"github.com/hypertrial/intentci/internal/runner"
 	"github.com/hypertrial/intentci/pkg/protocol"
@@ -14,13 +14,18 @@ import (
 
 // Options configures the scheduler.
 type Options struct {
-	Dir         string
-	MaxParallel int
-	Stdout      io.Writer
-	Stderr      io.Writer
+	Dir          string
+	MaxParallel  int
+	Stdout       io.Writer
+	Stderr       io.Writer
+	Cache        *cache.Store
+	NoCache      bool
+	ContractHash string
+	ChangeHash   string
+	EnvInclude   []string
 }
 
-// Run executes checks respecting depends_on, exclusive, and concurrency.
+// Run executes checks respecting depends_on, exclusive, concurrency, and cache.
 func Run(ctx context.Context, checks map[string]contract.Check, ids []string, opt Options) map[string]runner.Result {
 	results := make(map[string]runner.Result)
 	var mu sync.Mutex
@@ -34,7 +39,7 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 
 	max := opt.MaxParallel
 	if max <= 0 {
-		max = runtime.NumCPU()
+		max = numCPU()
 		if max < 1 {
 			max = 1
 		}
@@ -47,7 +52,6 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 	for len(pending) > 0 {
 		ready := readyChecks(pending, checks, results)
 		if len(ready) == 0 {
-			// Remaining checks blocked by failed/skipped deps or missing deps.
 			for id := range pending {
 				results[id] = runner.Result{
 					Check:  checks[id],
@@ -59,7 +63,6 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 			break
 		}
 
-		// Prefer exclusive checks alone.
 		exclusive := filterExclusive(ready, checks)
 		batch := ready
 		if len(exclusive) > 0 {
@@ -75,15 +78,49 @@ func Run(ctx context.Context, checks map[string]contract.Check, ids []string, op
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				ch := checks[id]
+				if !opt.NoCache && opt.Cache != nil {
+					key, ok, err := cache.Key(cache.KeyInput{
+						Check:        ch,
+						ContractHash: opt.ContractHash,
+						ChangeHash:   opt.ChangeHash,
+						RepoRoot:     opt.Dir,
+						EnvInclude:   opt.EnvInclude,
+					})
+					if err == nil && ok {
+						if cached, hit := opt.Cache.Get(key); hit {
+							cached.Check = ch
+							cached.FromCache = true
+							cached.Reason = "restored from cache"
+							mu.Lock()
+							results[id] = cached
+							mu.Unlock()
+							return
+						}
+					}
+				}
+
 				outW := prefixWriter(stdout.writer(), id)
 				errW := prefixWriter(stderr.writer(), id)
-				res := runner.Run(ctx, checks[id], runner.Options{
+				res := runner.Run(ctx, ch, runner.Options{
 					Dir:    opt.Dir,
 					Stdout: outW,
 					Stderr: errW,
 				})
 				flushPrefix(outW)
 				flushPrefix(errW)
+				if !opt.NoCache && opt.Cache != nil && res.Status == protocol.CheckPass {
+					key, ok, err := cache.Key(cache.KeyInput{
+						Check:        ch,
+						ContractHash: opt.ContractHash,
+						ChangeHash:   opt.ChangeHash,
+						RepoRoot:     opt.Dir,
+						EnvInclude:   opt.EnvInclude,
+					})
+					if err == nil && ok {
+						_ = opt.Cache.Put(key, res)
+					}
+				}
 				mu.Lock()
 				results[id] = res
 				mu.Unlock()

@@ -48,14 +48,12 @@ func Hash(data []byte) string {
 }
 
 // ToJSONMap converts the contract to a generic map for JSON Schema validation.
-func ToJSONMap(c *Contract) (map[string]any, error) {
-	b, err := json.Marshal(c)
-	if err != nil {
-		return nil, err
-	}
+func ToJSONMap(c *Contract) map[string]any {
+	b, _ := json.Marshal(c)
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
+	_ = json.Unmarshal(b, &m)
+	if m == nil {
+		m = map[string]any{}
 	}
-	return m, nil
+	return m
 }

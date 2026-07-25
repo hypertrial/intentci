@@ -1,19 +1,20 @@
 # Roadmap
 
 North-star specification: [`v1.md`](../v1.md).  
-Current freeze: [`v0.1.md`](v0.1.md).
+Current freeze: [`v0.2.md`](v0.2.md).
 
-## v0.1.0 — Local intent gate (current)
+## v0.1.0 — Local intent gate (shipped)
 
 Vertical slice: Product Contract → path impact → local checks → requirement statuses with text/JSON/exit codes.
 
-See [v0.1.md](v0.1.md) for the in/out cut line.
-
-## v0.2.0 — Change Specs and cache
+## v0.2.0 — Change Specs, cache, explain (current)
 
 - Change Specs (`intentci change create`, acceptance criteria as temporary requirements)
 - Content-addressed successful-check cache
 - `intentci explain <requirement-id>`
+- CI-enforced 100% statement coverage
+
+See [v0.2.md](v0.2.md).
 
 ## v0.3.0 — Local workflow hardening
 
@@ -31,8 +32,4 @@ See [v0.1.md](v0.1.md) for the in/out cut line.
 
 ## v1.0.0 — Spec complete
 
-All acceptance criteria in [v1.md §31](../v1.md):
-
-- Multi-language fixture corpus (Python, Go, TypeScript, Rust)
-- Full reliability and UX requirements
-- Progressive adoption path documented and verified
+All acceptance criteria in [v1.md §31](../v1.md).

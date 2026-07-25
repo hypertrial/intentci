@@ -23,6 +23,7 @@ type Result struct {
 	Stdout     string
 	Stderr     string
 	Reason     string
+	FromCache  bool
 }
 
 // Options configures check execution.

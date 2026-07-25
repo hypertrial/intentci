@@ -8,9 +8,11 @@ import (
 	"github.com/hypertrial/intentci/internal/contract"
 )
 
+var absPath = filepath.Abs
+
 // FindRoot walks upward from start looking for .intentci or .git.
 func FindRoot(start string) (string, error) {
-	dir, err := filepath.Abs(start)
+	dir, err := absPath(start)
 	if err != nil {
 		return "", err
 	}

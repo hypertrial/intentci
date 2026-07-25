@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +13,7 @@ func newInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Initialize IntentCI in the current repository",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := getwd()
 			if err != nil {
 				return err
 			}

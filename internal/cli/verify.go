@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -14,11 +13,13 @@ import (
 )
 
 type runFlags struct {
-	base   string
-	all    bool
-	format string
-	output string
-	trust  bool
+	base    string
+	all     bool
+	format  string
+	output  string
+	trust   bool
+	change  string
+	noCache bool
 }
 
 func newCheckCmd() *cobra.Command {
@@ -35,7 +36,7 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := getwd()
 			if err != nil {
 				return err
 			}
@@ -49,14 +50,16 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 				return exitErr(20, fmt.Errorf("unsupported format %q (want text|json)", f.format))
 			}
 			outcome, err := verify.Run(context.Background(), verify.Options{
-				Root:    root,
-				Base:    f.base,
-				Profile: profile,
-				All:     f.all,
-				Trust:   f.trust,
-				Stdout:  cmd.OutOrStdout(),
-				Stderr:  cmd.ErrOrStderr(),
-				Stream:  f.format != "json",
+				Root:     root,
+				Base:     f.base,
+				Profile:  profile,
+				All:      f.all,
+				Trust:    f.trust,
+				ChangeID: f.change,
+				NoCache:  f.noCache,
+				Stdout:   cmd.OutOrStdout(),
+				Stderr:   cmd.ErrOrStderr(),
+				Stream:   f.format != "json",
 			})
 			if err != nil {
 				code := 30
@@ -69,7 +72,6 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 				return exitErr(30, err)
 			}
 			if outcome.ExitCode != 0 {
-				// Report already written; exit with status code and no extra message.
 				return &ExitError{Code: outcome.ExitCode}
 			}
 			return nil
@@ -80,6 +82,8 @@ func newRunCmd(use, profile, short string) *cobra.Command {
 	cmd.Flags().StringVar(&f.format, "format", "text", "Output format: text|json")
 	cmd.Flags().StringVar(&f.output, "output", "", "Write report to a file")
 	cmd.Flags().BoolVar(&f.trust, "trust", false, "Trust this repository for local command execution")
+	cmd.Flags().StringVar(&f.change, "change", "", "Change Spec id")
+	cmd.Flags().BoolVar(&f.noCache, "no-cache", false, "Disable the successful-check cache")
 	return cmd
 }
 

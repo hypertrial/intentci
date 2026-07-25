@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -15,6 +14,7 @@ type State struct {
 	BaseCommit       string
 	HeadCommit       string
 	MergeBase        string
+	MergeBaseFull    string // full SHA for git object lookups (e.g. Change Spec base)
 	ChangedFiles     []string
 	WorkingTreeDirty bool
 }
@@ -22,7 +22,7 @@ type State struct {
 // Resolve computes merge-base, head, dirty status, and changed files.
 // Missing base references return an error (CLI exit code 21).
 func Resolve(root, baseRef string) (*State, error) {
-	root, err := filepath.Abs(root)
+	root, err := absPath(root)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +69,7 @@ func Resolve(root, baseRef string) (*State, error) {
 		BaseCommit:       short(baseCommit),
 		HeadCommit:       short(head),
 		MergeBase:        short(mergeBase),
+		MergeBaseFull:    mergeBase,
 		ChangedFiles:     changed,
 		WorkingTreeDirty: dirty,
 	}, nil
@@ -138,7 +139,9 @@ func changedFiles(root, mergeBase string, dirty bool) ([]string, error) {
 	return files, nil
 }
 
-func run(root string, args ...string) (string, error) {
+var run = runGit
+
+func runGit(root string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
 	var stdout, stderr bytes.Buffer

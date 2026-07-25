@@ -18,26 +18,26 @@ type Result struct {
 
 // Run creates .intentci/ with a starter contract.
 func Run(root string) (*Result, error) {
-	abs, err := filepath.Abs(root)
+	abs, err := absPath(root)
 	if err != nil {
 		return nil, err
 	}
 	dir := filepath.Join(abs, contract.DirName)
-	if err := os.MkdirAll(filepath.Join(dir, "changes"), 0o755); err != nil {
+	if err := mkdirAll(filepath.Join(dir, "changes"), 0o755); err != nil {
 		return nil, fmt.Errorf("create .intentci: %w", err)
 	}
 
 	res := &Result{Root: abs, ContractPath: contract.Path(abs)}
 	gitignore := filepath.Join(dir, ".gitignore")
-	if _, err := os.Stat(gitignore); os.IsNotExist(err) {
+	if _, err := fileStat(gitignore); os.IsNotExist(err) {
 		content := "# IntentCI local artifacts\ntmp/\n*.log\n"
-		if err := os.WriteFile(gitignore, []byte(content), 0o644); err != nil {
+		if err := writeFile(gitignore, []byte(content), 0o644); err != nil {
 			return nil, err
 		}
 		res.Created = append(res.Created, gitignore)
 	}
 
-	if _, err := os.Stat(res.ContractPath); err == nil {
+	if _, err := fileStat(res.ContractPath); err == nil {
 		return res, fmt.Errorf("contract already exists: %s", res.ContractPath)
 	} else if !os.IsNotExist(err) {
 		return nil, err
@@ -46,7 +46,7 @@ func Run(root string) (*Result, error) {
 	name := filepath.Base(abs)
 	draft := detectDraftChecks(abs)
 	body := renderContract(name, draft)
-	if err := os.WriteFile(res.ContractPath, []byte(body), 0o644); err != nil {
+	if err := writeFile(res.ContractPath, []byte(body), 0o644); err != nil {
 		return nil, err
 	}
 	res.Created = append(res.Created, res.ContractPath)

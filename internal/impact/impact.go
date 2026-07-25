@@ -22,63 +22,76 @@ type SelectedRequirement struct {
 
 // Options controls impact analysis.
 type Options struct {
-	// All selects every approved blocking requirement regardless of paths.
-	All bool
-	// Profile is "fast" or "full".
-	Profile string
+	All                 bool
+	Profile             string
+	ForceRequirementIDs []string
+	ForceCheckIDs       []string
+	ExtraRequirements   []contract.Requirement
 }
 
 // Resolve maps changed files to requirements and checks.
 func Resolve(c *contract.Contract, changed []string, opt Options) Selection {
 	reqs := c.ApprovedBlocking()
+	forceReq := map[string]struct{}{}
+	for _, id := range opt.ForceRequirementIDs {
+		forceReq[id] = struct{}{}
+	}
 	var selected []SelectedRequirement
+	selectedIDs := map[string]struct{}{}
 	checkSet := map[string]struct{}{}
 
-	for _, r := range reqs {
-		matched := matchingFiles(changed, r.AppliesTo)
-		affects := opt.All || len(matched) > 0 || len(r.AppliesTo.Include) == 0
-		if !affects {
-			continue
+	selectReq := func(r contract.Requirement, matched []string, forced bool) {
+		if _, ok := selectedIDs[r.ID]; ok {
+			return
 		}
 		if len(matched) == 0 {
-			if !opt.All && len(r.AppliesTo.Include) == 0 {
-				// No path rules: conservatively treat as affected for any change.
-				matched = append([]string{}, changed...)
-			} else if opt.All {
-				// Full verification without path hits still records the forced selection.
+			if forced || opt.All {
 				matched = []string{"*"}
+			} else if len(r.AppliesTo.Include) == 0 {
+				matched = append([]string{}, changed...)
 			}
 		}
-		selected = append(selected, SelectedRequirement{
-			Requirement: r,
-			AffectedBy:  matched,
-		})
+		selected = append(selected, SelectedRequirement{Requirement: r, AffectedBy: matched})
+		selectedIDs[r.ID] = struct{}{}
 		for _, id := range r.Verification.Checks {
 			ch, ok := c.CheckByID(id)
-			if !ok {
+			if !ok || !ch.HasProfile(opt.Profile) {
 				continue
 			}
-			if !ch.HasProfile(opt.Profile) {
-				continue
-			}
-			// Also select checks whose inputs match changed files, even if
-			// already selected via requirement mapping.
-			if opt.All || len(ch.Inputs) == 0 || anyMatch(changed, ch.Inputs) || len(matched) > 0 {
+			if forced || opt.All || len(ch.Inputs) == 0 || anyMatch(changed, ch.Inputs) || len(matched) > 0 {
 				checkSet[id] = struct{}{}
 			}
 		}
 	}
 
-	// Include dependency prerequisites.
+	for _, r := range reqs {
+		matched := matchingFiles(changed, r.AppliesTo)
+		_, forced := forceReq[r.ID]
+		affects := opt.All || forced || len(matched) > 0 || len(r.AppliesTo.Include) == 0
+		if !affects {
+			continue
+		}
+		selectReq(r, matched, forced)
+	}
+
+	// Force-select requirements by ID even if not approved-blocking path-matched
+	// (still only approved blocking from contract list above). Also add extras (ACs).
+	for _, r := range opt.ExtraRequirements {
+		selectReq(r, []string{"*"}, true)
+	}
+
+	for _, id := range opt.ForceCheckIDs {
+		if ch, ok := c.CheckByID(id); ok && ch.HasProfile(opt.Profile) {
+			checkSet[id] = struct{}{}
+		}
+	}
+
 	checks := c.CheckMap()
 	changedDeps := true
 	for changedDeps {
 		changedDeps = false
 		for id := range checkSet {
-			ch, ok := checks[id]
-			if !ok {
-				continue
-			}
+			ch := checks[id]
 			for _, dep := range ch.DependsOn {
 				if _, ok := checkSet[dep]; !ok {
 					if d, ok := checks[dep]; ok && d.HasProfile(opt.Profile) {
