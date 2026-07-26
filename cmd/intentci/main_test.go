@@ -5,18 +5,24 @@ import (
 	"testing"
 )
 
-func TestMainRunsVersion(t *testing.T) {
+func TestMainCompiles(t *testing.T) {
+	if exitFunc == nil {
+		t.Fatal("exitFunc nil")
+	}
+}
+
+func TestMainInvokesExit(t *testing.T) {
 	oldExit := exitFunc
 	oldArgs := os.Args
 	defer func() {
 		exitFunc = oldExit
 		os.Args = oldArgs
 	}()
-	var code int
-	exitFunc = func(c int) { code = c }
+	var got int
+	exitFunc = func(code int) { got = code }
 	os.Args = []string{"intentci", "version"}
 	main()
-	if code != 0 {
-		t.Fatalf("exit=%d", code)
+	if got != 0 {
+		t.Fatalf("exit code=%d", got)
 	}
 }

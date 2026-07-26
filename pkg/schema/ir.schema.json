@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentci.dev/schemas/ir-v1.json",
+  "title": "IntentCI Compiled Intent IR",
+  "type": "object",
+  "required": ["schema_version", "project", "hash", "requirements"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "project": { "type": "string" },
+    "hash": { "type": "string" },
+    "requirements": { "type": "array" }
+  }
+}

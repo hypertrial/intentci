@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentci.dev/schemas/repair-packet-v1.json",
+  "title": "IntentCI Repair Packet",
+  "type": "object",
+  "required": ["run_id", "verdict", "failures", "attempt", "max_attempts"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "verdict": { "type": "string" },
+    "failures": { "type": "array" },
+    "attempt": { "type": "integer" },
+    "max_attempts": { "type": "integer" }
+  }
+}

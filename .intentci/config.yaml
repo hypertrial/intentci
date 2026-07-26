@@ -1,0 +1,48 @@
+version: 1
+
+project:
+  name: intentci
+
+requirements:
+  paths:
+    - .intentci/requirements/**/*.md
+
+verification:
+  default_timeout: 15m
+  max_parallel: 4
+  working_directory: .
+
+change_impact:
+  base_ref: origin/main
+  include_untracked: true
+  run_unmapped_requirements: false
+
+evidence:
+  directory: .intentci/runs
+  retain_stdout: true
+  retain_stderr: true
+  hash_algorithm: sha256
+  redact:
+    environment:
+      - "*TOKEN*"
+      - "*SECRET*"
+      - "*PASSWORD*"
+      - "*KEY*"
+
+repair:
+  max_attempts: 3
+  stop_on_repeated_diff: true
+  stop_on_repeated_failure: true
+  allow_requirement_changes: false
+  allow_test_changes: true
+
+ci:
+  fail_on:
+    - fail
+    - error
+    - unproven
+    - uncertain
+    - review_required
+
+telemetry:
+  enabled: false

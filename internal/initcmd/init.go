@@ -4,167 +4,198 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/hypertrial/intentci/internal/contract"
+	"github.com/hypertrial/intentci/internal/config"
 )
 
-// Result describes what init created.
-type Result struct {
-	Root         string
-	ContractPath string
-	Created      []string
+var writeFile = os.WriteFile
+var mkdirAll = os.MkdirAll
+
+// Options configures initialization.
+type Options struct {
+	Root      string
+	Force     bool
+	Language  string
+	CIGithub  bool
+	NoExample bool
 }
 
-// Run creates .intentci/ with a starter contract.
-func Run(root string) (*Result, error) {
-	abs, err := absPath(root)
-	if err != nil {
-		return nil, err
+// Run initializes .intentci in a repository.
+func Run(opt Options) error {
+	dir := config.Dir(opt.Root)
+	cfgPath := config.Path(opt.Root)
+	if _, err := os.Stat(cfgPath); err == nil && !opt.Force {
+		return fmt.Errorf("%s already exists (use --force)", cfgPath)
 	}
-	dir := filepath.Join(abs, contract.DirName)
-	if err := mkdirAll(filepath.Join(dir, "changes"), 0o755); err != nil {
-		return nil, fmt.Errorf("create .intentci: %w", err)
+	if err := mkdirAll(filepath.Join(dir, "requirements"), 0o755); err != nil {
+		return err
+	}
+	name := filepath.Base(opt.Root)
+	if name == "" || name == "." {
+		name = "project"
+	}
+	cfg := fmt.Sprintf(`version: 1
+
+project:
+  name: %s
+
+requirements:
+  paths:
+    - .intentci/requirements/**/*.md
+
+verification:
+  default_timeout: 10m
+  max_parallel: 4
+  working_directory: .
+
+change_impact:
+  base_ref: origin/main
+  include_untracked: true
+  run_unmapped_requirements: false
+
+evidence:
+  directory: .intentci/runs
+  retain_stdout: true
+  retain_stderr: true
+  hash_algorithm: sha256
+  redact:
+    environment:
+      - "*TOKEN*"
+      - "*SECRET*"
+      - "*PASSWORD*"
+      - "*KEY*"
+
+repair:
+  max_attempts: 3
+  stop_on_repeated_diff: true
+  stop_on_repeated_failure: true
+  allow_requirement_changes: false
+  allow_test_changes: true
+
+ci:
+  fail_on:
+    - fail
+    - error
+    - unproven
+    - uncertain
+    - review_required
+
+telemetry:
+  enabled: false
+`, name)
+	if err := writeFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		return err
 	}
 
-	res := &Result{Root: abs, ContractPath: contract.Path(abs)}
 	gitignore := filepath.Join(dir, ".gitignore")
-	if _, err := fileStat(gitignore); os.IsNotExist(err) {
-		content := "# IntentCI local artifacts\ntmp/\n*.log\n"
-		if err := writeFile(gitignore, []byte(content), 0o644); err != nil {
-			return nil, err
+	_ = writeFile(gitignore, []byte("runs/\ncache/\ntmp/\nconfig.local.yaml\n"), 0o644)
+
+	if !opt.NoExample {
+		req := exampleRequirement(opt.Language)
+		if err := writeFile(filepath.Join(dir, "requirements", "REQ-001.md"), []byte(req), 0o644); err != nil {
+			return err
 		}
-		res.Created = append(res.Created, gitignore)
 	}
 
-	if _, err := fileStat(res.ContractPath); err == nil {
-		return res, fmt.Errorf("contract already exists: %s", res.ContractPath)
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-
-	name := filepath.Base(abs)
-	draft := detectDraftChecks(abs)
-	body := renderContract(name, draft)
-	if err := writeFile(res.ContractPath, []byte(body), 0o644); err != nil {
-		return nil, err
-	}
-	res.Created = append(res.Created, res.ContractPath)
-	return res, nil
-}
-
-type draftCheck struct {
-	ID          string
-	Description string
-	Command     string
-	Inputs      []string
-}
-
-func detectDraftChecks(root string) []draftCheck {
-	var out []draftCheck
-	if fileExists(root, "go.mod") {
-		out = append(out, draftCheck{
-			ID:          "go-test",
-			Description: "Go unit tests",
-			Command:     "go test ./...",
-			Inputs:      []string{"**/*.go", "go.mod", "go.sum"},
-		})
-	}
-	if fileExists(root, "package.json") {
-		out = append(out, draftCheck{
-			ID:          "npm-test",
-			Description: "JavaScript/TypeScript tests",
-			Command:     "npm test",
-			Inputs:      []string{"**/*.{js,ts,tsx,jsx}", "package.json", "package-lock.json"},
-		})
-	}
-	if fileExists(root, "pyproject.toml") || fileExists(root, "pytest.ini") || fileExists(root, "setup.py") {
-		out = append(out, draftCheck{
-			ID:          "pytest",
-			Description: "Python tests",
-			Command:     "pytest",
-			Inputs:      []string{"**/*.py", "pyproject.toml", "pytest.ini"},
-		})
-	}
-	if fileExists(root, "Cargo.toml") {
-		out = append(out, draftCheck{
-			ID:          "cargo-test",
-			Description: "Rust tests",
-			Command:     "cargo test",
-			Inputs:      []string{"**/*.rs", "Cargo.toml", "Cargo.lock"},
-		})
-	}
-	if len(out) == 0 {
-		out = append(out, draftCheck{
-			ID:          "unit-tests",
-			Description: "Repository unit tests (edit command)",
-			Command:     "echo 'configure a real test command'",
-			Inputs:      []string{"**/*"},
-		})
-	}
-	return out
-}
-
-func fileExists(root, name string) bool {
-	_, err := os.Stat(filepath.Join(root, name))
-	return err == nil
-}
-
-func renderContract(name string, drafts []draftCheck) string {
-	var b strings.Builder
-	b.WriteString("version: 1\n\n")
-	b.WriteString("product:\n")
-	b.WriteString(fmt.Sprintf("  name: %s\n", name))
-	b.WriteString("  purpose: Describe the product purpose.\n")
-	b.WriteString("  non_goals: []\n\n")
-	b.WriteString("policy:\n")
-	b.WriteString("  default_base: origin/main\n")
-	b.WriteString("  unknown_blocks: true\n")
-	b.WriteString("  unverified_blocks: true\n")
-	b.WriteString("  # semantic:\n")
-	b.WriteString("  #   enabled: true\n")
-	b.WriteString("  #   enforcement: advisory\n")
-	b.WriteString("  #   confidence_threshold: 0.8\n")
-	b.WriteString("  #   provider:\n")
-	b.WriteString("  #     type: local\n")
-	b.WriteString("  #     command: ./tools/intentci-semantic\n")
-	b.WriteString("  #     timeout: 2m\n\n")
-	b.WriteString("requirements:\n")
-	if len(drafts) > 0 {
-		d := drafts[0]
-		b.WriteString("  - id: BUILD-001\n")
-		b.WriteString("    type: reliability\n")
-		b.WriteString("    title: Core tests pass\n")
-		b.WriteString("    statement: Repository tests that guard product behavior must pass for affected changes.\n")
-		b.WriteString("    status: draft\n")
-		b.WriteString("    severity: blocking\n")
-		b.WriteString("    applies_to:\n")
-		b.WriteString("      include:\n")
-		for _, in := range d.Inputs {
-			b.WriteString(fmt.Sprintf("        - %q\n", in))
+	if opt.CIGithub {
+		wfDir := filepath.Join(opt.Root, ".github", "workflows")
+		if err := mkdirAll(wfDir, 0o755); err != nil {
+			return err
 		}
-		b.WriteString("    verification:\n")
-		b.WriteString("      mode: all\n")
-		b.WriteString("      checks:\n")
-		b.WriteString(fmt.Sprintf("        - %s\n", d.ID))
-		b.WriteString("\n")
-	}
-	b.WriteString("checks:\n")
-	for _, d := range drafts {
-		b.WriteString(fmt.Sprintf("  - id: %s\n", d.ID))
-		b.WriteString(fmt.Sprintf("    description: %s\n", d.Description))
-		b.WriteString(fmt.Sprintf("    command: %s\n", d.Command))
-		b.WriteString("    profiles:\n")
-		b.WriteString("      - fast\n")
-		b.WriteString("      - full\n")
-		b.WriteString("    inputs:\n")
-		for _, in := range d.Inputs {
-			b.WriteString(fmt.Sprintf("      - %q\n", in))
+		wf := `name: intentci
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+      - name: Install IntentCI
+        run: go install github.com/hypertrial/intentci/cmd/intentci@latest
+      - name: Verify
+        run: intentci verify --changed --format json
+`
+		if err := writeFile(filepath.Join(wfDir, "intentci.yml"), []byte(wf), 0o644); err != nil {
+			return err
 		}
-		b.WriteString("    timeout: 15m\n")
-		b.WriteString("    cache: success\n\n")
 	}
-	b.WriteString("# Promote requirements from draft to approved when ready.\n")
-	b.WriteString("# Only approved requirements affect verification results.\n")
-	return b.String()
+	return nil
 }
+
+func exampleRequirement(language string) string {
+	cmd := `"true"`
+	switch language {
+	case "go":
+		cmd = `"go test ./..."`
+	case "python":
+		cmd = `"pytest -q"`
+	case "typescript", "ts":
+		cmd = `"npm test"`
+	case "rust":
+		cmd = `"cargo test"`
+	}
+	return fmt.Sprintf(`---
+id: REQ-001
+title: Example requirement
+status: active
+priority: required
+owners: []
+depends_on: []
+applies_to:
+  paths:
+    - "**"
+tags:
+  - example
+---
+
+# Intent
+
+The repository smoke checks should pass.
+
+# Rationale
+
+Provides a starting obligation mapped to an existing test command.
+
+# Constraints
+
+## Must
+
+- id: CON-001
+  statement: Prefer existing repository test tooling.
+
+## Must Not
+
+- id: CON-002
+  statement: Do not invent a parallel test framework.
+
+# Boundaries
+
+`+"```yaml"+`
+allowed:
+  - "**"
+forbidden: []
+`+"```"+`
+
+# Obligations
+
+`+"```yaml"+`
+- id: OBL-001
+  statement: Smoke checks pass.
+  required: true
+  verify:
+    all:
+      - provider: command
+        id: smoke
+        run: %s
+        result:
+          type: exit_code
+          equals: 0
+`+"```"+`
+`, cmd)
+}
+

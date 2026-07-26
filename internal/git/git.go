@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -14,135 +15,18 @@ type State struct {
 	BaseCommit       string
 	HeadCommit       string
 	MergeBase        string
-	MergeBaseFull    string // full SHA for git object lookups (e.g. Change Spec base)
+	MergeBaseFull    string
 	ChangedFiles     []string
 	WorkingTreeDirty bool
 }
 
-// Resolve computes merge-base, head, dirty status, and changed files.
-// Missing base references return an error (CLI exit code 21).
-func Resolve(root, baseRef string) (*State, error) {
-	root, err := absPath(root)
-	if err != nil {
-		return nil, err
-	}
-	if !isGitRepo(root) {
-		return nil, fmt.Errorf("not a git repository: %s", root)
-	}
-
-	head, err := run(root, "rev-parse", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("resolve HEAD: %w", err)
-	}
-
-	if baseRef == "" {
-		baseRef = "origin/main"
-	}
-	if err := ensureRef(root, baseRef); err != nil {
-		return nil, fmt.Errorf("missing base reference %q (set policy.default_base or pass --base): %w", baseRef, err)
-	}
-
-	baseCommit, err := run(root, "rev-parse", baseRef)
-	if err != nil {
-		return nil, fmt.Errorf("resolve base commit: %w", err)
-	}
-
-	mergeBase, err := run(root, "merge-base", baseCommit, head)
-	if err != nil {
-		// Unrelated histories / single commit: use baseCommit.
-		mergeBase = baseCommit
-	}
-
-	dirty, err := isDirty(root)
-	if err != nil {
-		return nil, err
-	}
-
-	changed, err := changedFiles(root, mergeBase, dirty)
-	if err != nil {
-		return nil, err
-	}
-
-	return &State{
-		Root:             root,
-		BaseRef:          baseRef,
-		BaseCommit:       short(baseCommit),
-		HeadCommit:       short(head),
-		MergeBase:        short(mergeBase),
-		MergeBaseFull:    mergeBase,
-		ChangedFiles:     changed,
-		WorkingTreeDirty: dirty,
-	}, nil
-}
-
-func isGitRepo(root string) bool {
-	_, err := run(root, "rev-parse", "--is-inside-work-tree")
-	return err == nil
-}
-
-func ensureRef(root, ref string) error {
-	_, err := run(root, "rev-parse", "--verify", ref)
-	return err
-}
-
-func isDirty(root string) (bool, error) {
-	out, err := run(root, "status", "--porcelain")
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) != "", nil
-}
-
-func changedFiles(root, mergeBase string, dirty bool) ([]string, error) {
-	seen := map[string]struct{}{}
-	var files []string
-	add := func(list []string) {
-		for _, f := range list {
-			f = strings.TrimSpace(f)
-			if f == "" {
-				continue
-			}
-			if _, ok := seen[f]; ok {
-				continue
-			}
-			seen[f] = struct{}{}
-			files = append(files, f)
-		}
-	}
-
-	committed, err := run(root, "diff", "--name-only", "--diff-filter=ACDMRTUXB", mergeBase, "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("git diff: %w", err)
-	}
-	add(splitLines(committed))
-
-	if dirty {
-		staged, err := run(root, "diff", "--name-only", "--cached")
-		if err != nil {
-			return nil, err
-		}
-		add(splitLines(staged))
-
-		unstaged, err := run(root, "diff", "--name-only")
-		if err != nil {
-			return nil, err
-		}
-		add(splitLines(unstaged))
-
-		untracked, err := run(root, "ls-files", "--others", "--exclude-standard")
-		if err != nil {
-			return nil, err
-		}
-		add(splitLines(untracked))
-	}
-
-	return files, nil
-}
-
 var run = runGit
+var absPath = filepath.Abs
+
+var execCommand = exec.Command
 
 func runGit(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := execCommand("git", args...)
 	cmd.Dir = root
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -157,16 +41,93 @@ func runGit(root string, args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-func splitLines(s string) []string {
-	if s == "" {
-		return nil
+// Resolve computes merge-base, head, dirty status, and changed files.
+func Resolve(root, baseRef string) (*State, error) {
+	abs, err := absPath(root)
+	if err != nil {
+		return nil, err
 	}
-	return strings.Split(s, "\n")
+	if _, err := run(abs, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return nil, fmt.Errorf("not a git repository: %s", abs)
+	}
+	head, err := run(abs, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("resolve HEAD: %w", err)
+	}
+	if baseRef == "" {
+		baseRef = "origin/main"
+	}
+	if _, err := run(abs, "rev-parse", "--verify", baseRef); err != nil {
+		return nil, fmt.Errorf("missing base reference %q: %w", baseRef, err)
+	}
+	baseCommit, err := run(abs, "rev-parse", baseRef)
+	if err != nil {
+		return nil, err
+	}
+	mergeBase, err := run(abs, "merge-base", baseCommit, head)
+	if err != nil {
+		return nil, fmt.Errorf("merge-base: %w", err)
+	}
+	diffOut, err := run(abs, "diff", "--name-only", mergeBase)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(diffOut, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, filepath.ToSlash(line))
+		}
+	}
+	// unstaged + untracked
+	status, err := run(abs, "status", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	dirty := status != ""
+	for _, line := range strings.Split(status, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		path := strings.TrimSpace(line[3:])
+		if path == "" {
+			continue
+		}
+		if i := strings.Index(path, " -> "); i >= 0 {
+			path = path[i+4:]
+		}
+		path = filepath.ToSlash(path)
+		if !contains(files, path) {
+			files = append(files, path)
+		}
+	}
+	shortMB := mergeBase
+	if len(shortMB) > 12 {
+		shortMB = shortMB[:12]
+	}
+	return &State{
+		Root:             abs,
+		BaseRef:          baseRef,
+		BaseCommit:       baseCommit,
+		HeadCommit:       head,
+		MergeBase:        shortMB,
+		MergeBaseFull:    mergeBase,
+		ChangedFiles:     files,
+		WorkingTreeDirty: dirty,
+	}, nil
 }
 
-func short(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
+func contains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
 	}
-	return sha
+	return false
+}
+
+// IsRepo reports whether root is a git work tree.
+func IsRepo(root string) bool {
+	_, err := run(root, "rev-parse", "--is-inside-work-tree")
+	return err == nil
 }

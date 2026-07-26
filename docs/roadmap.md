@@ -1,39 +1,39 @@
 # Roadmap
 
 North-star specification: [`v1.md`](../v1.md).  
-Current freeze: [`v0.4.md`](v0.4.md).
+Current freeze: [`v1.md`](v1.md) (breaking rewrite toward `v1.0.0`).
 
-## v0.1.0 — Local intent gate (shipped)
+## Historical (shipped under Product Contract model)
 
-Vertical slice: Product Contract → path impact → local checks → requirement statuses with text/JSON/exit codes.
+### v0.1.0 — Local intent gate
 
-## v0.2.0 — Change Specs, cache, explain (shipped)
+Vertical slice: Product Contract → path impact → local checks → requirement statuses.
 
-- Change Specs (`intentci change create`, acceptance criteria as temporary requirements)
-- Content-addressed successful-check cache
-- `intentci explain <requirement-id>`
-- CI-enforced 100% statement coverage
+### v0.2.0 — Change Specs, cache, explain
 
-See [v0.2.md](v0.2.md).
+Change Specs, successful-check cache, `explain`, 100% coverage gate.
 
-## v0.3.0 — Local workflow hardening (shipped)
+### v0.3.0 — Local workflow hardening
 
-- Pre-push hook install/uninstall
-- Attestations (`--attest`)
-- Contract-weakening detection against the base commit
-- Optional JUnit result parsing
-- Waivers with expiry validation
+Hooks, attestations, contract-weakening detection, JUnit parse, waivers.
 
-See [v0.3.md](v0.3.md).
+### v0.4.0 — Semantic verification
 
-## v0.4.0 — Semantic verification (current)
+Optional local/HTTP semantic providers (Product Contract overlay).
 
-- Optional local/remote semantic providers (explicit opt-in)
-- Structured semantic findings with evidence citations
-- Deterministic failures outrank semantic assessments
+These lines are **superseded** by v1.0.0. See [migration-v0-to-v1.md](migration-v0-to-v1.md).
 
-See [v0.4.md](v0.4.md).
+## v1.0.0 — Spec complete (in progress)
 
-## v1.0.0 — Spec complete
+All acceptance criteria in [v1.md §38](../v1.md) / [acceptance-v1.md](acceptance-v1.md).
 
-All acceptance criteria in [v1.md §31](../v1.md).
+Internal milestones ([v1.md §37](../v1.md)):
+
+1. Compiler foundation — Markdown → IR, `init` / `compile` / `schema`
+2. Verification engine — providers, executor, verdicts, `verify`
+3. Report adapters — JUnit/SARIF/JSON providers and reporters, `explain` / `status`
+4. Incremental verification — `--changed`, cache
+5. Repair loop — packets, bounded agent, `repair`
+6. Release readiness — examples, docs, Apache-2.0, binaries
+
+Public tag: **`v1.0.0`** only when §38 is green.

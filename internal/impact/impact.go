@@ -1,160 +1,156 @@
 package impact
 
 import (
-	"sort"
+	"path/filepath"
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/hypertrial/intentci/internal/contract"
+	"github.com/hypertrial/intentci/internal/ir"
 )
 
-// Selection is the set of affected requirements and checks to run.
+// Selection is the set of requirements/obligations to verify.
 type Selection struct {
-	Requirements []SelectedRequirement
-	CheckIDs     []string
+	Requirements []ir.Requirement
+	Unmapped     []string
 }
 
-// SelectedRequirement is an affected requirement with matching files.
-type SelectedRequirement struct {
-	Requirement contract.Requirement
-	AffectedBy  []string
-}
-
-// Options controls impact analysis.
+// Options configures impact analysis.
 type Options struct {
-	All                 bool
-	Profile             string
-	ForceRequirementIDs []string
-	ForceCheckIDs       []string
-	ExtraRequirements   []contract.Requirement
+	All           bool
+	RequirementID string
+	ObligationID  string
+	ChangedFiles  []string
 }
 
-// Resolve maps changed files to requirements and checks.
-func Resolve(c *contract.Contract, changed []string, opt Options) Selection {
-	reqs := c.ApprovedBlocking()
-	forceReq := map[string]struct{}{}
-	for _, id := range opt.ForceRequirementIDs {
-		forceReq[id] = struct{}{}
-	}
-	var selected []SelectedRequirement
-	selectedIDs := map[string]struct{}{}
-	checkSet := map[string]struct{}{}
-
-	selectReq := func(r contract.Requirement, matched []string, forced bool) {
-		if _, ok := selectedIDs[r.ID]; ok {
-			return
-		}
-		if len(matched) == 0 {
-			if forced || opt.All {
-				matched = []string{"*"}
-			} else if len(r.AppliesTo.Include) == 0 {
-				matched = append([]string{}, changed...)
+// Select chooses active requirements affected by changed files.
+func Select(doc *ir.Document, opt Options) Selection {
+	active := doc.ActiveRequirements()
+	if opt.RequirementID != "" {
+		var filtered []ir.Requirement
+		for _, r := range active {
+			if r.ID == opt.RequirementID {
+				if opt.ObligationID != "" {
+					r = filterObligation(r, opt.ObligationID)
+				}
+				filtered = append(filtered, r)
 			}
 		}
-		selected = append(selected, SelectedRequirement{Requirement: r, AffectedBy: matched})
-		selectedIDs[r.ID] = struct{}{}
-		for _, id := range r.Verification.Checks {
-			ch, ok := c.CheckByID(id)
-			if !ok || !ch.HasProfile(opt.Profile) {
+		return Selection{Requirements: filtered}
+	}
+	if opt.All || len(opt.ChangedFiles) == 0 {
+		out := active
+		if opt.ObligationID != "" {
+			tmp := make([]ir.Requirement, 0, len(out))
+			for _, r := range out {
+				tmp = append(tmp, filterObligation(r, opt.ObligationID))
+			}
+			out = tmp
+		}
+		return Selection{Requirements: out}
+	}
+
+	// dependency closure of path-matched requirements
+	matched := map[string]bool{}
+	for _, r := range active {
+		if matchesPaths(r, opt.ChangedFiles) {
+			matched[r.ID] = true
+		}
+	}
+	// propagate depends_on reverse: if A depends on B and B matched, A is affected;
+	// also if A matched, dependencies of A should run.
+	byID := map[string]ir.Requirement{}
+	for _, r := range active {
+		byID[r.ID] = r
+	}
+	changed := true
+	for changed {
+		changed = false
+		for _, r := range active {
+			if matched[r.ID] {
+				for _, dep := range r.DependsOn {
+					if !matched[dep] {
+						if _, ok := byID[dep]; ok {
+							matched[dep] = true
+							changed = true
+						}
+					}
+				}
 				continue
 			}
-			if forced || opt.All || len(ch.Inputs) == 0 || anyMatch(changed, ch.Inputs) || len(matched) > 0 {
-				checkSet[id] = struct{}{}
-			}
-		}
-	}
-
-	for _, r := range reqs {
-		matched := matchingFiles(changed, r.AppliesTo)
-		_, forced := forceReq[r.ID]
-		affects := opt.All || forced || len(matched) > 0 || len(r.AppliesTo.Include) == 0
-		if !affects {
-			continue
-		}
-		selectReq(r, matched, forced)
-	}
-
-	// Force-select requirements by ID even if not approved-blocking path-matched
-	// (still only approved blocking from contract list above). Also add extras (ACs).
-	for _, r := range opt.ExtraRequirements {
-		selectReq(r, []string{"*"}, true)
-	}
-
-	for _, id := range opt.ForceCheckIDs {
-		if ch, ok := c.CheckByID(id); ok && ch.HasProfile(opt.Profile) {
-			checkSet[id] = struct{}{}
-		}
-	}
-
-	checks := c.CheckMap()
-	changedDeps := true
-	for changedDeps {
-		changedDeps = false
-		for id := range checkSet {
-			ch := checks[id]
-			for _, dep := range ch.DependsOn {
-				if _, ok := checkSet[dep]; !ok {
-					if d, ok := checks[dep]; ok && d.HasProfile(opt.Profile) {
-						checkSet[dep] = struct{}{}
-						changedDeps = true
-					}
+			for _, dep := range r.DependsOn {
+				if matched[dep] {
+					matched[r.ID] = true
+					changed = true
+					break
 				}
 			}
 		}
 	}
 
-	ids := make([]string, 0, len(checkSet))
-	for id := range checkSet {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return Selection{Requirements: selected, CheckIDs: ids}
-}
-
-func matchingFiles(files []string, applies contract.AppliesTo) []string {
-	var out []string
-	for _, f := range files {
-		if pathMatches(f, applies) {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-func pathMatches(path string, applies contract.AppliesTo) bool {
-	if len(applies.Include) == 0 {
-		return false
-	}
-	included := false
-	for _, g := range applies.Include {
-		if match(g, path) {
-			included = true
-			break
-		}
-	}
-	if !included {
-		return false
-	}
-	for _, g := range applies.Exclude {
-		if match(g, path) {
-			return false
-		}
-	}
-	return true
-}
-
-func anyMatch(files, patterns []string) bool {
-	for _, f := range files {
-		for _, p := range patterns {
-			if match(p, f) {
-				return true
+	var selected []ir.Requirement
+	for _, r := range active {
+		if matched[r.ID] {
+			if opt.ObligationID != "" {
+				r = filterObligation(r, opt.ObligationID)
 			}
+			selected = append(selected, r)
+		}
+	}
+
+	var unmapped []string
+	for _, f := range opt.ChangedFiles {
+		hit := false
+		for _, r := range active {
+			if pathMatches(r.AppliesTo.Paths, f) || pathMatches(r.Boundaries.Allowed, f) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			unmapped = append(unmapped, f)
+		}
+	}
+	return Selection{Requirements: selected, Unmapped: unmapped}
+}
+
+func filterObligation(r ir.Requirement, id string) ir.Requirement {
+	var obs []ir.Obligation
+	for _, o := range r.Obligations {
+		if o.ID == id {
+			obs = append(obs, o)
+		}
+	}
+	r.Obligations = obs
+	return r
+}
+
+func matchesPaths(r ir.Requirement, files []string) bool {
+	paths := r.AppliesTo.Paths
+	if len(paths) == 0 {
+		// no applies_to → affected by any change (conservative)
+		return len(files) > 0
+	}
+	for _, f := range files {
+		if pathMatches(paths, f) {
+			return true
 		}
 	}
 	return false
 }
 
-func match(pattern, path string) bool {
-	ok, err := doublestar.PathMatch(pattern, path)
-	return err == nil && ok
+func pathMatches(patterns []string, file string) bool {
+	file = filepath.ToSlash(file)
+	for _, p := range patterns {
+		p = filepath.ToSlash(p)
+		ok, err := doublestar.Match(p, file)
+		if err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// PathMatches reports whether file matches any pattern.
+func PathMatches(patterns []string, file string) bool {
+	return pathMatches(patterns, file)
 }

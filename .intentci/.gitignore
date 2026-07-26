@@ -1,4 +1,4 @@
-# IntentCI local artifacts
+runs/
+cache/
 tmp/
-*.log
-last-result.json
+config.local.yaml

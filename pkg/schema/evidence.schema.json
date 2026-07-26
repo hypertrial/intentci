@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentci.dev/schemas/evidence-v1.json",
+  "title": "IntentCI Evidence Record",
+  "type": "object",
+  "required": ["id", "class", "summary"],
+  "properties": {
+    "id": { "type": "string" },
+    "class": { "type": "string" },
+    "summary": { "type": "string" },
+    "passed": { "type": ["boolean", "null"] }
+  }
+}

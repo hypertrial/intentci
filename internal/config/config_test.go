@@ -6,47 +6,86 @@ import (
 	"testing"
 
 	"github.com/hypertrial/intentci/internal/config"
-	"github.com/hypertrial/intentci/internal/contract"
 )
 
-func TestFindRoot_IntentCI(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, contract.DirName), 0o755); err != nil {
+func TestDefaultAndValidate(t *testing.T) {
+	cfg := config.Default()
+	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	nested := filepath.Join(dir, "a", "b")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
+	if cfg.Telemetry.Enabled {
+		t.Fatal("telemetry must default false")
 	}
-	root, err := config.FindRoot(nested)
-	if err != nil {
-		t.Fatal(err)
+	if cfg.MaxParallelOr(0) != 4 {
+		t.Fatalf("parallel=%d", cfg.MaxParallelOr(0))
 	}
-	if root != dir {
-		t.Fatalf("got %s want %s", root, dir)
-	}
-	if config.IntentCIDir(root) != filepath.Join(root, contract.DirName) {
-		t.Fatal("IntentCIDir mismatch")
+	if cfg.BaseRefOr("x") != "origin/main" {
+		t.Fatalf("base=%s", cfg.BaseRefOr("x"))
 	}
 }
 
-func TestFindRoot_Git(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+func TestLoadAndLocalOverride(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, config.DirName)
+	if err := os.MkdirAll(filepath.Join(dir, "requirements"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	root, err := config.FindRoot(dir)
+	body := `version: 1
+project: {name: demo}
+requirements:
+  paths: [".intentci/requirements/**/*.md"]
+verification:
+  default_timeout: 1m
+  max_parallel: 2
+`
+	if err := os.WriteFile(filepath.Join(dir, config.ConfigFileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	local := `verification:
+  max_parallel: 8
+`
+	if err := os.WriteFile(filepath.Join(dir, config.LocalFileName), []byte(local), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root != dir {
-		t.Fatalf("got %s", root)
+	if cfg.Project.Name != "demo" || cfg.Verification.MaxParallel != 8 {
+		t.Fatalf("%+v", cfg)
 	}
 }
 
-func TestFindRoot_Missing(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := config.FindRoot(dir); err == nil {
+func TestValidateErrors(t *testing.T) {
+	cfg := config.Default()
+	cfg.Version = 2
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected version error")
+	}
+	cfg = config.Default()
+	cfg.Project.Name = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected name error")
+	}
+	cfg = config.Default()
+	cfg.Verification.DefaultTimeout = "nope"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+func TestParseDuration(t *testing.T) {
+	d, err := config.ParseDuration("")
+	if err != nil || d.Minutes() != 10 {
+		t.Fatalf("%v %v", d, err)
+	}
+	if _, err := config.ParseDuration("0s"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadMissing(t *testing.T) {
+	if _, err := config.Load(t.TempDir()); err == nil {
 		t.Fatal("expected error")
 	}
 }

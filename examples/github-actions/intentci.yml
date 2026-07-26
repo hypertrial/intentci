@@ -1,0 +1,22 @@
+name: intentci
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+      - name: Install IntentCI
+        run: go install github.com/hypertrial/intentci/cmd/intentci@v1.0.0
+      - name: Verify changed requirements
+        run: intentci verify --changed --format junit --output intentci-junit.xml
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intentci-junit
+          path: intentci-junit.xml

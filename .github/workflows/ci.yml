@@ -14,6 +14,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23.x"
@@ -23,12 +25,14 @@ jobs:
         run: ./scripts/check-coverage.sh
       - name: Build
         run: go build -o intentci ./cmd/intentci
-      - name: Validate dogfood contract
-        run: ./intentci validate
+      - name: Compile dogfood
+        run: ./intentci compile --strict
       - name: Version
         run: ./intentci version
+      - name: Doctor
+        run: ./intentci doctor
       - name: Dogfood verify
-        run: ./intentci verify --trust --all --no-cache --format json --output /tmp/intentci.json
+        run: ./intentci verify --all --no-cache --format json --output /tmp/intentci.json
 
   build-matrix:
     runs-on: ubuntu-latest
@@ -41,7 +45,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_linux_amd64 ./cmd/intentci
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_darwin_amd64 ./cmd/intentci
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=0.4.0" -o dist/intentci_darwin_arm64 ./cmd/intentci
+          VER="${GITHUB_SHA::7}"
+          for pair in linux/amd64 darwin/amd64 darwin/arm64; do
+            GOOS="${pair%/*}"
+            GOARCH="${pair#*/}"
+            GOOS="$GOOS" GOARCH="$GOARCH" go build \
+              -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=1.0.0-dev+${VER}" \
+              -o "dist/intentci_${GOOS}_${GOARCH}" ./cmd/intentci
+          done
           ls -la dist

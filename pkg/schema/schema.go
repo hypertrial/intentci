@@ -1,15 +1,18 @@
-// Package schema embeds JSON Schema definitions distributed with IntentCI.
 package schema
 
-import (
-	_ "embed"
-)
+import _ "embed"
 
-//go:embed contract.schema.json
-var ContractJSON []byte
+//go:embed requirement.schema.json
+var RequirementJSON []byte
 
-//go:embed result.schema.json
-var ResultJSON []byte
+//go:embed evidence.schema.json
+var EvidenceJSON []byte
 
-//go:embed changespec.schema.json
-var ChangeSpecJSON []byte
+//go:embed verdict.schema.json
+var VerdictJSON []byte
+
+//go:embed repair.schema.json
+var RepairJSON []byte
+
+//go:embed ir.schema.json
+var IRJSON []byte

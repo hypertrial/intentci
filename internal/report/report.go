@@ -1,177 +1,143 @@
 package report
 
 import (
-	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
-
-	"github.com/hypertrial/intentci/pkg/protocol"
-	appschema "github.com/hypertrial/intentci/pkg/schema"
+	"github.com/hypertrial/intentci/internal/evidence"
+	"github.com/hypertrial/intentci/internal/verdict"
 )
 
-// WriteJSON writes the machine-readable result.
-func WriteJSON(w io.Writer, res *protocol.Result) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(res)
-}
-
-// WriteText writes the human-readable report.
-func WriteText(w io.Writer, res *protocol.Result) error {
-	var b strings.Builder
-	title := "IntentCI verification passed"
-	switch res.Status {
-	case protocol.StatusFail:
-		title = "IntentCI verification failed"
-	case protocol.StatusUnverified:
-		title = "IntentCI verification incomplete"
-	case protocol.StatusUnknown:
-		title = "IntentCI verification unknown"
-	}
-	fmt.Fprintln(&b, title)
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Base:   %s\n", res.BaseCommit)
-	fmt.Fprintf(&b, "Head:   %s\n", res.HeadCommit)
-	fmt.Fprintf(&b, "Profile: %s\n", res.Profile)
-	if res.ChangeSpec != nil {
-		fmt.Fprintf(&b, "Change: %s\n", res.ChangeSpec.ID)
-	}
-	if res.WorkingTreeDirty {
-		fmt.Fprintln(&b, "Worktree: dirty")
-	}
-	if res.Semantic != nil {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Semantic")
-		if !res.Semantic.Enabled {
-			fmt.Fprintln(&b, "  disabled")
-		} else if res.Semantic.Skipped != "" {
-			fmt.Fprintf(&b, "  skipped: %s\n", res.Semantic.Skipped)
-		} else {
-			fmt.Fprintf(&b, "  provider: %s (%s)\n", res.Semantic.Provider, res.Semantic.Enforcement)
-			fmt.Fprintf(&b, "  findings: %d\n", res.Semantic.FindingCount)
-		}
-	}
-	if len(res.ChangeFindings) > 0 {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Change Spec findings")
-		for _, f := range res.ChangeFindings {
-			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
-		}
-	}
-	if len(res.ContractChanges) > 0 {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Contract changes")
-		for _, f := range res.ContractChanges {
-			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
-		}
-	}
-	if len(res.Waivers) > 0 {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Waivers")
-		for _, w := range res.Waivers {
-			who := w.Owner
-			if who == "" {
-				who = w.Approver
-			}
-			fmt.Fprintf(&b, "  %s  %s  expires %s  (%s)\n", w.ID, w.Requirement, w.Expires, who)
-			fmt.Fprintf(&b, "    %s\n", w.Reason)
-		}
-	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Requirements")
-	if len(res.Requirements) == 0 {
-		fmt.Fprintln(&b, "  (none affected)")
-	}
-	for _, r := range res.Requirements {
-		fmt.Fprintf(&b, "  %-11s %s  %s\n", strings.ToUpper(r.Status), r.ID, r.Title)
-	}
-	for _, r := range res.Requirements {
-		if r.Status == protocol.ReqPass || r.Status == protocol.ReqNotAffected {
-			continue
-		}
-		fmt.Fprintln(&b)
-		fmt.Fprintf(&b, "%s — %s\n", r.ID, strings.ToUpper(r.Status))
-		if len(r.AffectedBy) > 0 {
-			fmt.Fprintln(&b, "  Changed:")
-			for _, f := range r.AffectedBy {
-				fmt.Fprintf(&b, "    %s\n", f)
-			}
-		}
-		for _, f := range r.Findings {
-			fmt.Fprintf(&b, "  %s: %s\n", f.Type, f.Summary)
-		}
-		if r.Reason != "" {
-			fmt.Fprintf(&b, "  Reason: %s\n", r.Reason)
-		}
-	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Summary")
-	s := res.Summary
-	fmt.Fprintf(&b, "  %d passed\n", s.Pass)
-	fmt.Fprintf(&b, "  %d failed\n", s.Fail)
-	fmt.Fprintf(&b, "  %d unverified\n", s.Unverified)
-	fmt.Fprintf(&b, "  %d unknown\n", s.Unknown)
-	fmt.Fprintf(&b, "  %d waived\n", s.Waived)
-	fmt.Fprintf(&b, "  %d checks executed\n", s.ChecksExecuted)
-	fmt.Fprintf(&b, "  %d checks cached\n", s.ChecksCached)
-	_, err := io.WriteString(w, b.String())
-	return err
-}
-
-// Write writes according to format and optional output path.
-func Write(format, output string, res *protocol.Result, stdout io.Writer) error {
-	var w io.Writer = stdout
-	var f *os.File
-	if output != "" {
-		var err error
-		f, err = os.Create(output)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		w = f
-	}
-	switch format {
+// Write renders a bundle in the requested format.
+func Write(w io.Writer, format string, b *evidence.Bundle) error {
+	switch strings.ToLower(format) {
+	case "", "text":
+		return writeText(w, b)
 	case "json":
-		return WriteJSON(w, res)
-	case "text", "":
-		return WriteText(w, res)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(b)
+	case "junit":
+		return writeJUnit(w, b)
 	default:
 		return fmt.Errorf("unsupported format %q", format)
 	}
 }
 
-var (
-	resultSchemaJSON = func() []byte { return appschema.ResultJSON }
-	addSchemaResource = func(c *jsonschema.Compiler, url string, doc any) error {
-		return c.AddResource(url, doc)
+func writeText(w io.Writer, b *evidence.Bundle) error {
+	fmt.Fprintf(w, "Run %s  verdict=%s\n", b.RunID, b.Run.Verdict)
+	if len(b.Unmapped) > 0 {
+		fmt.Fprintf(w, "Unmapped files: %s\n", strings.Join(b.Unmapped, ", "))
 	}
-	compileSchemaURL = func(c *jsonschema.Compiler, url string) (*jsonschema.Schema, error) {
-		return c.Compile(url)
+	for _, r := range b.Run.Requirements {
+		fmt.Fprintf(w, "\n%s %s  %s\n", strings.ToUpper(r.Verdict), r.ID, r.Title)
+		for _, o := range r.Obligations {
+			fmt.Fprintf(w, "  %s %s  %s\n", strings.ToUpper(o.Verdict), o.ID, o.Statement)
+			if o.Reason != "" {
+				fmt.Fprintf(w, "    %s\n", o.Reason)
+			}
+		}
 	}
-)
+	return nil
+}
 
-// ValidateResultSchema validates a result against the published schema.
-func ValidateResultSchema(res *protocol.Result) error {
-	b, _ := json.Marshal(res)
-	compiler := jsonschema.NewCompiler()
-	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(resultSchemaJSON()))
+type junitSuites struct {
+	XMLName xml.Name    `xml:"testsuites"`
+	Suites  []junitSuite `xml:"testsuite"`
+}
+
+type junitSuite struct {
+	Name     string      `xml:"name,attr"`
+	Tests    int         `xml:"tests,attr"`
+	Failures int         `xml:"failures,attr"`
+	Errors   int         `xml:"errors,attr"`
+	Cases    []junitCase `xml:"testcase"`
+}
+
+type junitCase struct {
+	Name      string        `xml:"name,attr"`
+	Classname string        `xml:"classname,attr"`
+	Failure   *junitFailure `xml:"failure,omitempty"`
+	Error     *junitFailure `xml:"error,omitempty"`
+}
+
+type junitFailure struct {
+	Message string `xml:"message,attr"`
+	Body    string `xml:",chardata"`
+}
+
+func writeJUnit(w io.Writer, b *evidence.Bundle) error {
+	suite := junitSuite{Name: "intentci"}
+	for _, r := range b.Run.Requirements {
+		for _, o := range r.Obligations {
+			suite.Tests++
+			tc := junitCase{Name: o.ID, Classname: r.ID}
+			switch o.Verdict {
+			case verdict.Fail:
+				suite.Failures++
+				tc.Failure = &junitFailure{Message: o.Verdict, Body: o.Reason}
+			case verdict.Error:
+				suite.Errors++
+				tc.Error = &junitFailure{Message: o.Verdict, Body: o.Reason}
+			case verdict.Unproven, verdict.Uncertain, verdict.ReviewRequired:
+				suite.Failures++
+				tc.Failure = &junitFailure{Message: o.Verdict, Body: o.Reason}
+			}
+			suite.Cases = append(suite.Cases, tc)
+		}
+	}
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "  ")
+	if err := enc.Encode(junitSuites{Suites: []junitSuite{suite}}); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
+}
+
+// WriteGitHubStepSummary appends a markdown summary when GITHUB_STEP_SUMMARY is set.
+func WriteGitHubStepSummary(b *evidence.Bundle) error {
+	path := os.Getenv("GITHUB_STEP_SUMMARY")
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	if err := addSchemaResource(compiler, "https://intentci.dev/schemas/result-v1.json", doc); err != nil {
-		return err
+	defer f.Close()
+	fmt.Fprintf(f, "## IntentCI %s\n\nVerdict: `%s`\n\n", b.RunID, b.Run.Verdict)
+	fmt.Fprintf(f, "| Requirement | Verdict |\n| --- | --- |\n")
+	for _, r := range b.Run.Requirements {
+		fmt.Fprintf(f, "| %s | %s |\n", r.ID, r.Verdict)
 	}
-	sch, err := compileSchemaURL(compiler, "https://intentci.dev/schemas/result-v1.json")
-	if err != nil {
-		return err
+	return nil
+}
+
+// Explain writes a detailed explanation for a requirement.
+func Explain(w io.Writer, b *evidence.Bundle, id string, showEvidence bool) error {
+	for _, r := range b.Run.Requirements {
+		if r.ID != id {
+			continue
+		}
+		fmt.Fprintf(w, "%s: %s\nVerdict: %s\n\n", r.ID, r.Title, strings.ToUpper(r.Verdict))
+		for _, o := range r.Obligations {
+			fmt.Fprintf(w, "%s  %s\n  %s\n", strings.ToUpper(o.Verdict), o.ID, o.Statement)
+			if o.Reason != "" {
+				fmt.Fprintf(w, "  Evidence: %s\n", o.Reason)
+			}
+			if showEvidence {
+				for _, e := range o.Evidence {
+					fmt.Fprintf(w, "  - [%s] %s\n", e.Class, e.Summary)
+				}
+			}
+			fmt.Fprintln(w)
+		}
+		return nil
 	}
-	var m any
-	_ = json.Unmarshal(b, &m)
-	return sch.Validate(m)
+	return fmt.Errorf("requirement %q not found in run %s", id, b.RunID)
 }

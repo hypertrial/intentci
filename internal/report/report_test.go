@@ -5,77 +5,49 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/hypertrial/intentci/internal/evidence"
 	"github.com/hypertrial/intentci/internal/report"
-	"github.com/hypertrial/intentci/pkg/protocol"
+	"github.com/hypertrial/intentci/internal/verdict"
 )
 
-func sampleResult(status string) *protocol.Result {
-	return &protocol.Result{
-		SchemaVersion:    1,
-		RunID:            "01TEST",
-		Status:           status,
-		BaseCommit:       "abc1234",
-		HeadCommit:       "def5678",
-		ContractHash:     "sha256:deadbeef",
-		WorkingTreeDirty: true,
-		Profile:          "full",
-		ChangeSpec:       &protocol.ChangeSpecRef{ID: "DEMO-1", Hash: "h"},
-		ChangeFindings:   []protocol.ChangeFinding{{Type: "change_spec_modified", Summary: "changed"}},
-		Requirements: []protocol.RequirementResult{
-			{ID: "A-001", Title: "ok", Status: protocol.ReqPass, Severity: "blocking", AffectedBy: []string{}, Checks: []protocol.CheckRef{}, Evidence: []protocol.Evidence{}, Findings: []protocol.Finding{}},
-			{ID: "B-001", Title: "bad", Status: protocol.ReqFail, Severity: "blocking", AffectedBy: []string{"x.go"}, Checks: []protocol.CheckRef{}, Evidence: []protocol.Evidence{}, Findings: []protocol.Finding{{Type: "deterministic_failure", Summary: "boom"}}, Reason: "failed"},
+func sample() *evidence.Bundle {
+	return &evidence.Bundle{
+		RunID: "RUN1", CreatedAt: time.Now().UTC(),
+		Run: verdict.RunResult{
+			Verdict: verdict.Fail,
+			Requirements: []verdict.RequirementResult{{
+				ID: "REQ-1", Title: "t", Verdict: verdict.Fail,
+				Obligations: []verdict.ObligationResult{{ID: "OBL-1", Verdict: verdict.Fail, Reason: "x", Statement: "s"}},
+			}},
 		},
-		Checks:          []protocol.CheckResult{},
-		Waivers:         []protocol.Waiver{},
-		ContractChanges: []protocol.ContractChange{},
-		Summary:         protocol.Summary{Pass: 1, Fail: 1, ChecksExecuted: 1, ChecksCached: 2},
 	}
 }
 
-func TestWriteTextAndJSONAndFile(t *testing.T) {
-	for _, st := range []string{protocol.StatusPass, protocol.StatusFail, protocol.StatusUnverified, protocol.StatusUnknown} {
-		var buf bytes.Buffer
-		if err := report.WriteText(&buf, sampleResult(st)); err != nil {
-			t.Fatal(err)
-		}
-		if buf.Len() == 0 {
-			t.Fatal("empty")
-		}
-	}
-	res := sampleResult(protocol.StatusPass)
-	res.Requirements = nil
+func TestFormats(t *testing.T) {
+	b := sample()
 	var buf bytes.Buffer
-	if err := report.WriteText(&buf, res); err != nil {
+	if err := report.Write(&buf, "text", b); err != nil {
 		t.Fatal(err)
 	}
-	if err := report.ValidateResultSchema(sampleResult(protocol.StatusPass)); err != nil {
+	buf.Reset()
+	if err := report.Write(&buf, "json", b); err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(t.TempDir(), "r.json")
-	if err := report.Write("json", out, sampleResult(protocol.StatusPass), &buf); err != nil {
+	buf.Reset()
+	if err := report.Write(&buf, "junit", b); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(out); err != nil {
+	if err := report.Explain(&buf, b, "REQ-1", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := report.Write("text", "", sampleResult(protocol.StatusPass), &buf); err != nil {
+	sum := filepath.Join(t.TempDir(), "sum.md")
+	t.Setenv("GITHUB_STEP_SUMMARY", sum)
+	if err := report.WriteGitHubStepSummary(b); err != nil {
 		t.Fatal(err)
 	}
-	if err := report.Write("yaml", "", sampleResult(protocol.StatusPass), &buf); err == nil {
-		t.Fatal("bad format")
+	if _, err := os.Stat(sum); err != nil {
+		t.Fatal(err)
 	}
-	if err := report.Write("json", filepath.Join(t.TempDir(), "no", "such", "r.json"), sampleResult(protocol.StatusPass), &buf); err == nil {
-		t.Fatal("expected create error")
-	}
-	if err := report.WriteText(&errWriter{}, sampleResult(protocol.StatusPass)); err == nil {
-		t.Fatal("expected write error")
-	}
-	bad := sampleResult(protocol.StatusPass)
-	bad.Status = "not-a-status"
-	_ = report.ValidateResultSchema(bad)
 }
-
-type errWriter struct{}
-
-func (errWriter) Write(p []byte) (int, error) { return 0, os.ErrClosed }

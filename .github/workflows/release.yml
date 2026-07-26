@@ -18,8 +18,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23.x"
-      - name: Run tests
-        run: go test ./...
+      - name: Coverage gate
+        run: ./scripts/check-coverage.sh
       - name: Build release binaries
         run: |
           set -euo pipefail
