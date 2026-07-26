@@ -37,7 +37,7 @@ func Select(doc *ir.Document, opt Options) Selection {
 		}
 		return Selection{Requirements: filtered}
 	}
-	if opt.All || len(opt.ChangedFiles) == 0 {
+	if opt.All {
 		out := active
 		if opt.ObligationID != "" {
 			tmp := make([]ir.Requirement, 0, len(out))
@@ -47,6 +47,10 @@ func Select(doc *ir.Document, opt Options) Selection {
 			out = tmp
 		}
 		return Selection{Requirements: out}
+	}
+	// Changed-mode with no diff: nothing affected (do not silently verify all).
+	if len(opt.ChangedFiles) == 0 {
+		return Selection{Requirements: nil, Unmapped: nil}
 	}
 
 	// dependency closure of path-matched requirements

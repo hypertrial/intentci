@@ -7,12 +7,10 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// DefaultProtected are paths agents must not modify during repair.
+// DefaultProtected are paths agents must not modify during repair (v1.md §23.2).
 var DefaultProtected = []string{
-	".intentci/config.yaml",
-	".intentci/requirements/**",
-	".intentci/schemas/**",
-	".intentci/policies/**",
+	".intentci/**",
+	".github/workflows/**",
 }
 
 // RedactEnv filters environment variable names matching glob patterns.
@@ -47,19 +45,12 @@ func matchAny(patterns []string, s string) bool {
 func ProtectedViolation(changed []string, allowRequirementChanges bool, extraProtected []string) []string {
 	patterns := append([]string{}, DefaultProtected...)
 	patterns = append(patterns, extraProtected...)
-	if allowRequirementChanges {
-		filtered := patterns[:0]
-		for _, p := range patterns {
-			if strings.Contains(p, "requirements") || strings.Contains(p, "config.yaml") {
-				continue
-			}
-			filtered = append(filtered, p)
-		}
-		patterns = filtered
-	}
 	var hits []string
 	for _, f := range changed {
 		f = filepath.ToSlash(f)
+		if allowRequirementChanges && isIntentciConfigPath(f) {
+			continue
+		}
 		for _, p := range patterns {
 			ok, err := doublestar.Match(filepath.ToSlash(p), f)
 			if err == nil && ok {
@@ -69,6 +60,14 @@ func ProtectedViolation(changed []string, allowRequirementChanges bool, extraPro
 		}
 	}
 	return hits
+}
+
+func isIntentciConfigPath(f string) bool {
+	f = filepath.ToSlash(f)
+	return f == ".intentci/config.yaml" ||
+		strings.HasPrefix(f, ".intentci/requirements/") ||
+		strings.HasPrefix(f, ".intentci/schemas/") ||
+		strings.HasPrefix(f, ".intentci/policies/")
 }
 
 // IsTestPath reports whether a path looks like a test file.

@@ -31,13 +31,26 @@ func TestEvaluateAndAggregate(t *testing.T) {
 	if v != verdict.Pass {
 		t.Fatalf("got %s", v)
 	}
-	rr := verdict.AggregateRequirement(ir.Requirement{ID: "R", Title: "t", Priority: "required"}, []verdict.ObligationResult{
+	unproven := verdict.AggregateRequirement(ir.Requirement{ID: "R", Title: "t", Priority: "required"}, []verdict.ObligationResult{
 		{ID: "o", Required: true, Verdict: verdict.Unproven},
 	})
-	if rr.Verdict != verdict.Unproven {
-		t.Fatal(rr.Verdict)
+	if unproven.Verdict != verdict.Unproven {
+		t.Fatal(unproven.Verdict)
 	}
-	run := verdict.AggregateRun([]verdict.RequirementResult{rr})
+	optional := verdict.AggregateRequirement(ir.Requirement{ID: "R", Title: "t", Priority: "required"}, []verdict.ObligationResult{
+		{ID: "opt", Required: false, Verdict: verdict.Fail, Reason: "optional fail"},
+		{ID: "req", Required: true, Verdict: verdict.Pass},
+	})
+	if optional.Verdict != verdict.Pass {
+		t.Fatalf("optional fail must not block: %s", optional.Verdict)
+	}
+	onlyOptional := verdict.AggregateRequirement(ir.Requirement{ID: "R", Title: "t", Priority: "required"}, []verdict.ObligationResult{
+		{ID: "opt", Required: false, Verdict: verdict.Fail},
+	})
+	if onlyOptional.Verdict != verdict.Pass || onlyOptional.Reason != "no required obligations" {
+		t.Fatalf("%+v", onlyOptional)
+	}
+	run := verdict.AggregateRun([]verdict.RequirementResult{unproven})
 	if verdict.ExitCode(run.Verdict) != 2 {
 		t.Fatalf("exit=%d", verdict.ExitCode(run.Verdict))
 	}

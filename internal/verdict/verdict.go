@@ -174,14 +174,17 @@ func rank(v string) int {
 }
 
 // AggregateRequirement combines obligation verdicts.
+// Optional (required: false) obligations never block the requirement by default.
 func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementResult {
 	out := RequirementResult{
 		ID: r.ID, Title: r.Title, Priority: r.Priority, Obligations: obs, Verdict: Pass,
 	}
+	required := 0
 	for _, o := range obs {
-		if !o.Required && o.Verdict != Fail && o.Verdict != Error {
+		if !o.Required {
 			continue
 		}
+		required++
 		if rank(o.Verdict) > rank(out.Verdict) {
 			out.Verdict = o.Verdict
 			out.Reason = o.Reason
@@ -190,6 +193,9 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 	if len(obs) == 0 {
 		out.Verdict = Unproven
 		out.Reason = "no obligations selected"
+	} else if required == 0 {
+		out.Verdict = Pass
+		out.Reason = "no required obligations"
 	}
 	return out
 }

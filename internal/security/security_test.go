@@ -15,6 +15,10 @@ func TestRedactAndProtected(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("%v", hits)
 	}
+	hits = security.ProtectedViolation([]string{".github/workflows/ci.yml", "pkg/a.go"}, false, nil)
+	if len(hits) != 1 || hits[0] != ".github/workflows/ci.yml" {
+		t.Fatalf("workflows must be protected: %v", hits)
+	}
 	if !security.IsTestPath("internal/foo_test.go") {
 		t.Fatal("test path")
 	}

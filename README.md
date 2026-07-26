@@ -82,7 +82,7 @@ intentci repair \
 
 ```text
 --all                     Verify all active requirements
---changed                 Verify requirements affected by the Git diff (default)
+--changed                 Verify requirements affected by the Git diff (default; empty diff verifies nothing)
 --requirement <id>        Single requirement
 --obligation <id>         Single obligation
 --base <ref>              Comparison base

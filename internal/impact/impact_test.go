@@ -24,4 +24,8 @@ func TestSelectChanged(t *testing.T) {
 	if len(all.Requirements) != 2 {
 		t.Fatalf("%d", len(all.Requirements))
 	}
+	empty := impact.Select(doc, impact.Options{ChangedFiles: nil})
+	if len(empty.Requirements) != 0 {
+		t.Fatalf("changed-mode with empty diff must select nothing, got %+v", empty)
+	}
 }

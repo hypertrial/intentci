@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -47,16 +48,26 @@ func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]Le
 		key   string
 		spec  ir.ProviderSpec
 	}
+	type prepared struct {
+		req   ir.Requirement
+		obl   ir.Obligation
+		verify ir.VerifyNode
+		jobs  []job
+	}
+	var preparedObs []prepared
 	var jobs []job
 	for _, r := range reqs {
 		for _, o := range r.Obligations {
-			collectLeaves(o.Verify, func(spec ir.ProviderSpec) {
+			counter := 0
+			verify := assignLeafIDs(o.Verify, &counter)
+			var oblJobs []job
+			collectLeaves(verify, func(spec ir.ProviderSpec) {
 				key := spec.ID
-				if key == "" {
-					key = spec.Provider
-				}
-				jobs = append(jobs, job{reqID: r.ID, oblID: o.ID, key: key, spec: spec})
+				j := job{reqID: r.ID, oblID: o.ID, key: key, spec: spec}
+				oblJobs = append(oblJobs, j)
+				jobs = append(jobs, j)
 			})
+			preparedObs = append(preparedObs, prepared{req: r, obl: o, verify: verify, jobs: oblJobs})
 		}
 	}
 
@@ -118,39 +129,67 @@ func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]Le
 	}
 
 	byReq := map[string]LeafResult{}
-	for k, res := range results {
-		// k = req/obl/key
-		parts := split3(k)
-		if len(parts) != 3 {
-			continue
+	reqObs := map[string][]verdict.ObligationResult{}
+	for _, prep := range preparedObs {
+		leaves := LeafResult{}
+		for _, j := range prep.jobs {
+			if res, ok := results[j.reqID+"/"+j.oblID+"/"+j.key]; ok {
+				leaves[j.key] = res
+			}
 		}
-		lr := byReq[parts[0]]
-		if lr == nil {
-			lr = LeafResult{}
-			byReq[parts[0]] = lr
+		if byReq[prep.req.ID] == nil {
+			byReq[prep.req.ID] = LeafResult{}
 		}
-		// also index by obl-specific and plain key
-		lr[parts[2]] = res
-		lr[parts[1]+"/"+parts[2]] = res
+		for k, res := range leaves {
+			byReq[prep.req.ID][k] = res
+			byReq[prep.req.ID][prep.obl.ID+"/"+k] = res
+		}
+		v, reason, ev := verdict.EvaluateNode(prep.verify, leaves)
+		reqObs[prep.req.ID] = append(reqObs[prep.req.ID], verdict.ObligationResult{
+			ID: prep.obl.ID, Statement: prep.obl.Statement, Required: prep.obl.Required,
+			Verdict: v, Reason: reason, Evidence: ev,
+		})
 	}
 
 	var reqResults []verdict.RequirementResult
 	for _, r := range reqs {
-		leaves := byReq[r.ID]
-		if leaves == nil {
-			leaves = LeafResult{}
-		}
-		var obs []verdict.ObligationResult
-		for _, o := range r.Obligations {
-			v, reason, ev := verdict.EvaluateNode(o.Verify, leaves)
-			obs = append(obs, verdict.ObligationResult{
-				ID: o.ID, Statement: o.Statement, Required: o.Required,
-				Verdict: v, Reason: reason, Evidence: ev,
-			})
+		obs := reqObs[r.ID]
+		if obs == nil {
+			obs = []verdict.ObligationResult{}
 		}
 		reqResults = append(reqResults, verdict.AggregateRequirement(r, obs))
 	}
 	return byReq, reqResults
+}
+
+// assignLeafIDs returns a copy of n with unique provider leaf IDs filled in.
+func assignLeafIDs(n ir.VerifyNode, counter *int) ir.VerifyNode {
+	out := n
+	if n.Provider != nil {
+		p := *n.Provider
+		if p.ID == "" {
+			*counter++
+			p.ID = fmt.Sprintf("%s#%d", p.Provider, *counter)
+		}
+		out.Provider = &p
+	}
+	if len(n.All) > 0 {
+		out.All = make([]ir.VerifyNode, len(n.All))
+		for i, c := range n.All {
+			out.All[i] = assignLeafIDs(c, counter)
+		}
+	}
+	if len(n.Any) > 0 {
+		out.Any = make([]ir.VerifyNode, len(n.Any))
+		for i, c := range n.Any {
+			out.Any[i] = assignLeafIDs(c, counter)
+		}
+	}
+	if n.Not != nil {
+		child := assignLeafIDs(*n.Not, counter)
+		out.Not = &child
+	}
+	return out
 }
 
 func collectLeaves(n ir.VerifyNode, fn func(ir.ProviderSpec)) {

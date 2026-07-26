@@ -365,11 +365,11 @@ func toProvider(m map[string]any) (ir.ProviderSpec, error) {
 	if v, ok := m["id"].(string); ok {
 		spec.ID = v
 	}
-	if v, ok := m["run"].(string); ok {
-		spec.Run = v
+	if v, ok := m["run"]; ok {
+		spec.Run = scalarString(v)
 	}
-	if v, ok := m["report"].(string); ok {
-		spec.Report = v
+	if v, ok := m["report"]; ok {
+		spec.Report = scalarString(v)
 	}
 	if v, ok := m["result"].(map[string]any); ok {
 		spec.Result = v
@@ -408,9 +408,36 @@ func stringSlice(v any) []string {
 	}
 	out := make([]string, 0, len(arr))
 	for _, x := range arr {
-		if s, ok := x.(string); ok {
+		if s := scalarString(x); s != "" || x == "" {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// scalarString coerces YAML scalars (including unquoted true/false/numbers) to strings.
+func scalarString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case int:
+		return fmt.Sprintf("%d", t)
+	case int64:
+		return fmt.Sprintf("%d", t)
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t))
+		}
+		return fmt.Sprintf("%v", t)
+	default:
+		if v == nil {
+			return ""
+		}
+		return fmt.Sprintf("%v", t)
+	}
 }
