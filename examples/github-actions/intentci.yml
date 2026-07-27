@@ -4,19 +4,19 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.23.x"
       - name: Install IntentCI
-        run: go install github.com/hypertrial/intentci/cmd/intentci@v1.0.0
+        run: go install github.com/hypertrial/intentci/cmd/intentci@v1.1.0
       - name: Verify changed requirements
         run: intentci verify --changed --format junit --output intentci-junit.xml
       - name: Upload JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: intentci-junit
           path: intentci-junit.xml

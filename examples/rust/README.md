@@ -1,6 +1,7 @@
 # Rust example
 
 ```bash
-intentci init --language rust
-intentci verify --all
+cargo test
+intentci compile --strict
+intentci verify --all --no-git
 ```

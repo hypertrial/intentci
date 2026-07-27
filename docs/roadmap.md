@@ -1,7 +1,7 @@
 # Roadmap
 
 North-star specification: [`v1.md`](../v1.md).  
-Current freeze: [`v1.md`](v1.md) (breaking rewrite toward `v1.0.0`).
+Current freeze: [`v1.md`](v1.md).
 
 ## Historical (shipped under Product Contract model)
 
@@ -23,7 +23,7 @@ Optional local/HTTP semantic providers (Product Contract overlay).
 
 These lines are **superseded** by v1.0.0. See [migration-v0-to-v1.md](migration-v0-to-v1.md).
 
-## v1.0.0 — Spec complete (in progress)
+## v1.1.0 — Full v1 conformance
 
 All acceptance criteria in [v1.md §38](../v1.md) / [acceptance-v1.md](acceptance-v1.md).
 
@@ -36,4 +36,12 @@ Internal milestones ([v1.md §37](../v1.md)):
 5. Repair loop — packets, bounded agent, `repair`
 6. Release readiness — examples, docs, Apache-2.0, binaries
 
-Public tag: **`v1.0.0`** only when §38 is green.
+The v1.0.x tags remain immutable historical releases. v1.1.0 is the first
+release blocked on the machine-readable §38 matrix, Linux/macOS release gates,
+mutation evidence, performance records, and independent final review.
+
+## Post-v1
+
+Hosted services, OPA-native integration, distributed execution, container
+sandboxing, signed evidence bundles, and the other features in v1.md §41 remain
+deferred.

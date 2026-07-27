@@ -1,6 +1,8 @@
 # TypeScript example
 
 ```bash
-intentci init --language typescript
-intentci verify --all
+npm ci
+npm test
+intentci compile --strict
+intentci verify --all --no-git
 ```

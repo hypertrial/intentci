@@ -209,7 +209,7 @@ func TestRepairMaxAttemptsDefault(t *testing.T) {
 	gitCommitTree(t, root, map[string]string{"README.md": "x\n"})
 	store, _ := evidence.NewStore(root, t.TempDir())
 	cfg := config.Default()
-	cfg.Repair.MaxAttempts = 0
+	cfg.Repair.MaxAttempts = 3
 	cfg.Repair.StopOnRepeatedFailure = false
 	attempts := 0
 	out, err := repair.Run(context.Background(), repair.Options{
@@ -222,7 +222,24 @@ func TestRepairMaxAttemptsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stopped != "max_attempts" || attempts < 1 {
+	if out.Stopped != "max_attempts" || attempts != 3 {
 		t.Fatalf("%+v attempts=%d", out, attempts)
+	}
+
+	root = t.TempDir()
+	gitInit(t, root)
+	gitCommitTree(t, root, map[string]string{"README.md": "x\n"})
+	store, _ = evidence.NewStore(root, t.TempDir())
+	cfg.Repair.MaxAttempts = 0
+	attempts = 0
+	out, err = repair.Run(context.Background(), repair.Options{
+		Root: root, Config: cfg, Store: store, DryRun: true,
+		Verify: func(ctx context.Context) (*evidence.Bundle, error) {
+			attempts++
+			return failBundle("clamped"), nil
+		},
+	})
+	if err != nil || out.Stopped != "max_attempts" || attempts != 1 {
+		t.Fatalf("%+v attempts=%d err=%v", out, attempts, err)
 	}
 }

@@ -1,0 +1,29 @@
+version: 1
+project:
+  name: repair-go-fixture
+requirements:
+  paths:
+    - .intentci/requirements/**/*.md
+verification:
+  default_timeout: 2m
+  max_parallel: 2
+change_impact:
+  base_ref: HEAD
+  include_untracked: true
+evidence:
+  directory: .intentci/runs
+repair:
+  max_attempts: 2
+  stop_on_repeated_diff: true
+  stop_on_repeated_failure: true
+  allow_requirement_changes: false
+  allow_test_changes: false
+ci:
+  fail_on:
+    - fail
+    - error
+    - unproven
+    - uncertain
+    - review_required
+telemetry:
+  enabled: false

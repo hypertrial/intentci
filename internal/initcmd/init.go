@@ -146,15 +146,41 @@ jobs:
 
 func exampleRequirement(language string) string {
 	cmd := `"printf 'intentci-ok\n'"`
+	inherited := ""
 	switch language {
 	case "go":
 		cmd = `"(go test ./...) && printf 'intentci-ok\n'"`
+		inherited = `
+        inherit_environment:
+          - HOME
+          - GOCACHE`
 	case "python":
 		cmd = `"(pytest -q) && printf 'intentci-ok\n'"`
+		inherited = `
+        inherit_environment:
+          - HOME
+          - PYTHONPATH
+          - VIRTUAL_ENV`
 	case "typescript", "ts":
 		cmd = `"(npm test) && printf 'intentci-ok\n'"`
+		inherited = `
+        inherit_environment:
+          - HOME
+          - NODE_OPTIONS`
 	case "rust":
 		cmd = `"(cargo test) && printf 'intentci-ok\n'"`
+		inherited = `
+        inherit_environment:
+          - HOME
+          - CARGO_HOME
+          - RUSTUP_HOME`
+	case "java":
+		cmd = `"(mvn test) && printf 'intentci-ok\n'"`
+		inherited = `
+        inherit_environment:
+          - HOME
+          - JAVA_HOME
+          - MAVEN_OPTS`
 	}
 	return fmt.Sprintf(`---
 id: REQ-001
@@ -201,12 +227,12 @@ Provides a starting obligation mapped to an existing test command.
     all:
       - provider: command
         id: smoke
-        run: %s
+        run: %s%s
         result:
           type: exit_code
           equals: 0
           stdout:
             contains: intentci-ok
 `+"```"+`
-`, cmd)
+`, cmd, inherited)
 }

@@ -5,20 +5,25 @@
 ```bash
 go test ./...
 ./scripts/check-coverage.sh
+go test -race ./...
 go build -o intentci ./cmd/intentci
 ./intentci compile --strict
 ./intentci verify --all --no-cache
+./scripts/check_examples.sh
+./scripts/validate_v1_release.sh
 ```
 
 ## Branching
 
-Feature work for v1 lands on `v1-rewrite` (or `main` after merge). Public tags are reserved for release versions (`v1.0.0`).
+Feature work lands through pull requests to protected `main`. Public tags are
+immutable and reserved for verified releases.
 
 ## Style
 
 - Prefer interfaces over package-level `var` hooks for testability.
 - Keep provider contracts in `internal/provider`.
-- Update [docs/acceptance-v1.md](acceptance-v1.md) when completing acceptance items.
+- Add behavior-focused tests for every change and keep the 100% statement gate.
+- Update the executable §38 suite when an acceptance contract changes.
 
 ## License
 

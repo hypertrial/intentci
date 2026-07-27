@@ -131,13 +131,11 @@ func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
 			runErr = err
 		}
 	}()
-	max := opt.MaxAttempts
-	if max <= 0 {
-		max = opt.Config.Repair.MaxAttempts
+	limit := opt.MaxAttempts
+	if limit <= 0 {
+		limit = opt.Config.Repair.MaxAttempts
 	}
-	if max < 1 {
-		max = 1
-	}
+	limit = max(limit, 1)
 
 	var last *evidence.Bundle
 	var diffFingerprints []string
@@ -151,7 +149,7 @@ func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
 		return &Outcome{ExitCode: exitcode.SecurityBoundary, Stopped: "preexisting_protected_path:" + strings.Join(violations, ",")}, nil
 	}
 
-	for attempt := 1; attempt <= max; attempt++ {
+	for attempt := 1; attempt <= limit; attempt++ {
 		b, err := opt.Verify(ctx)
 		if err != nil {
 			return &Outcome{ExitCode: exitcode.Internal, Attempts: attempt}, err
@@ -169,7 +167,7 @@ func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: verdict.ExitCode(verdict.ReviewRequired), Stopped: "review_required"}, nil
 		}
 
-		packet := BuildPacket(b, attempt, max, "")
+		packet := BuildPacket(b, attempt, limit, "")
 		packet.ProtectedPaths = uniqueSorted(append(append([]string{}, security.DefaultProtected...), opt.Config.Repair.ProtectedPaths...))
 		packet.TestChangesAllowed = opt.Config.Repair.AllowTestChanges
 		attemptID := b.AttemptID
@@ -187,7 +185,7 @@ func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
 		}
 		failFingerprints = append(failFingerprints, fp)
 
-		if attempt == max {
+		if attempt == limit {
 			break
 		}
 		if opt.DryRun || opt.AgentCommand == "" {
@@ -275,7 +273,7 @@ func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
 		}
 	}
 
-	return &Outcome{Bundle: last, Attempts: max, ExitCode: exitcode.RepairExhausted, Stopped: "max_attempts"}, nil
+	return &Outcome{Bundle: last, Attempts: limit, ExitCode: exitcode.RepairExhausted, Stopped: "max_attempts"}, nil
 }
 
 func agentExitCode(err error) int {
@@ -330,8 +328,10 @@ var gitOutput = func(root string, arguments ...string) ([]byte, error) {
 	return command.Output()
 }
 
+var relativePath = filepath.Rel
+
 func storePrefix(root, storeRoot string) string {
-	relative, err := filepath.Rel(root, storeRoot)
+	relative, err := relativePath(root, storeRoot)
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return ""
 	}

@@ -1,7 +1,9 @@
 # Python example
 
+This project uses only Python's standard-library test runner.
+
 ```bash
-intentci init --language python
-# map obligations to pytest in .intentci/requirements/
-intentci verify --all
+python3 -m unittest -v
+intentci compile --strict
+intentci verify --all --no-git
 ```
