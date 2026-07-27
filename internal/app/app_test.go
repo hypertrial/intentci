@@ -591,16 +591,18 @@ func waitForPath(t *testing.T, path string) {
 
 func waitPIDFile(t *testing.T, path string) int {
 	t.Helper()
-	waitForPath(t, path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+				return pid
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pid
+	t.Fatalf("timed out waiting for PID in %s", path)
+	return 0
 }
 
 func waitProcessGone(t *testing.T, pid int) {
