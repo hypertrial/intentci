@@ -21,6 +21,8 @@ jobs:
           cache: true
       - name: Validate
         run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$(go run ./cmd/intentci version)" = "$version"
           go test -race ./...
           go vet ./...
           go run ./cmd/intentci --all

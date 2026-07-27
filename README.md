@@ -16,12 +16,12 @@ release.
 IntentCI v2 supports Apple Silicon Macs.
 Source builds on other platforms are incidental and unsupported.
 
-Download `intentci_2.0.2_darwin_arm64.tar.gz` from
+Download `intentci_2.0.3_darwin_arm64.tar.gz` from
 [GitHub Releases](https://github.com/hypertrial/intentci/releases), or install
 from source with Go 1.23 or newer:
 
 ```bash
-go install github.com/hypertrial/intentci/v2/cmd/intentci@v2.0.2
+go install github.com/hypertrial/intentci/v2/cmd/intentci@v2.0.3
 ```
 
 ## Start
@@ -55,9 +55,10 @@ Then use one command during normal development:
 intentci
 ```
 
-IntentCI finds staged, unstaged, deleted, renamed, and untracked non-ignored
-files relative to `HEAD`. It runs matching checks in YAML order and stops at
-the first failure. A change to `.intentci.yaml` runs every check.
+IntentCI takes the union of staged and unstaged tracked paths, then adds
+deleted, renamed, and untracked non-ignored files. Commands run against the
+current working tree in YAML order and stop at the first failure. A change to
+`.intentci.yaml` runs every check.
 
 Run everything explicitly with:
 
@@ -95,6 +96,11 @@ intentci --help      Print usage
 Exit codes are `0` for success or no matching work, `1` for a failed check, `2`
 for usage/configuration/Git/launch errors, `130` for `SIGINT`, and `143` for
 `SIGTERM`.
+
+An interrupt stops repository discovery or the active check and never starts a
+later check. IntentCI sends `SIGTERM` to the complete check process group,
+allows one second for a graceful exit, then forcibly terminates anything still
+running.
 
 ## Trust
 

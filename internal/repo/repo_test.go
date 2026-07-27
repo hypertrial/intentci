@@ -1,11 +1,17 @@
 package repo
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func run(t *testing.T, root string, args ...string) {
@@ -42,6 +48,7 @@ func newGitRepo(t *testing.T) string {
 }
 
 func TestRootAndChanged(t *testing.T) {
+	ctx := context.Background()
 	root := newGitRepo(t)
 	write(t, root, ".gitignore", "ignored\n")
 	write(t, root, "old.go", "package old\n")
@@ -53,11 +60,11 @@ func TestRootAndChanged(t *testing.T) {
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gotRoot, err := Root(subdir)
+	gotRoot, err := Root(ctx, subdir)
 	if err != nil || gotRoot != root {
 		t.Fatalf("Root() = %q, %v; want %q", gotRoot, err, root)
 	}
-	if files, err := Changed(root); err != nil || len(files) != 0 {
+	if files, err := Changed(ctx, root); err != nil || len(files) != 0 {
 		t.Fatalf("clean Changed() = %v, %v", files, err)
 	}
 
@@ -68,7 +75,7 @@ func TestRootAndChanged(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "delete.go")); err != nil {
 		t.Fatal(err)
 	}
-	files, err := Changed(root)
+	files, err := Changed(ctx, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +86,13 @@ func TestRootAndChanged(t *testing.T) {
 }
 
 func TestChangedRenameAndUnbornRepository(t *testing.T) {
+	ctx := context.Background()
 	root := newGitRepo(t)
 	write(t, root, "before.go", "package before\n")
 	run(t, root, "git", "add", ".")
 	run(t, root, "git", "commit", "-qm", "initial")
 	run(t, root, "git", "mv", "before.go", "after.go")
-	files, err := Changed(root)
+	files, err := Changed(ctx, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,11 +104,94 @@ func TestChangedRenameAndUnbornRepository(t *testing.T) {
 	write(t, unborn, "staged.go", "package staged\n")
 	write(t, unborn, "untracked.go", "package untracked\n")
 	run(t, unborn, "git", "add", "staged.go")
-	files, err = Changed(unborn)
+	files, err = Changed(ctx, unborn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(files, []string{"staged.go", "untracked.go"}) {
 		t.Fatalf("unborn Changed() = %v", files)
 	}
+}
+
+func TestChangedKeepsStagedAndUnstagedPathsSeparate(t *testing.T) {
+	ctx := context.Background()
+	root := newGitRepo(t)
+	write(t, root, "file.go", "package original\n")
+	run(t, root, "git", "add", ".")
+	run(t, root, "git", "commit", "-qm", "initial")
+
+	write(t, root, "file.go", "package staged\n")
+	run(t, root, "git", "add", "file.go")
+	run(t, root, "git", "restore", "--worktree", "--source=HEAD", "file.go")
+
+	files, err := Changed(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(files, []string{"file.go"}) {
+		t.Fatalf("Changed() = %v, want staged and unstaged path", files)
+	}
+}
+
+func TestChangedRejectsCorruptHead(t *testing.T) {
+	root := newGitRepo(t)
+	write(t, root, ".git/HEAD", "not-a-ref\n")
+	if _, err := Changed(context.Background(), root); err == nil {
+		t.Fatal("Changed() accepted a corrupt HEAD")
+	}
+}
+
+func TestRootCancellation(t *testing.T) {
+	fakeBin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "started")
+	write(t, fakeBin, "git", `#!/bin/zsh
+print $$ > "$INTENTCI_GIT_MARKER"
+sleep 30
+`)
+	if err := os.Chmod(filepath.Join(fakeBin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv("INTENTCI_GIT_MARKER", marker)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := Root(ctx, t.TempDir())
+		result <- err
+	}()
+	waitForFile(t, marker)
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "not a Git repository") {
+			t.Fatalf("Root() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Git process ignored cancellation")
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("Git process %d survived: %v", pid, err)
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }

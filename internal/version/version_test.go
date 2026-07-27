@@ -10,7 +10,7 @@ func TestString(t *testing.T) {
 		t.Fatal(String())
 	}
 	Version = ""
-	if String() != "2.0.2" {
+	if String() != DefaultVersion {
 		t.Fatal(String())
 	}
 }
