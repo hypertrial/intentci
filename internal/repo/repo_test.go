@@ -168,7 +168,7 @@ sleep 30
 		if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "not a Git repository") {
 			t.Fatalf("Root() error = %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("Git process ignored cancellation")
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {

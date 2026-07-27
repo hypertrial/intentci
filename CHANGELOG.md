@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.4 — 2026-07-27
+
+### Fixed
+
+- Generated Node checks now cover JSX, MTS, CTS, and root TypeScript
+  configuration files.
+- Git-cancellation integration tests now allow the complete documented
+  termination and cleanup window.
+
 ## 2.0.3 — 2026-07-27
 
 ### Fixed
