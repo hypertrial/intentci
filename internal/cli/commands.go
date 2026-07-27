@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -19,6 +22,7 @@ import (
 	"github.com/hypertrial/intentci/internal/initcmd"
 	"github.com/hypertrial/intentci/internal/repair"
 	"github.com/hypertrial/intentci/internal/report"
+	"github.com/hypertrial/intentci/internal/security"
 	"github.com/hypertrial/intentci/internal/verify"
 	appschema "github.com/hypertrial/intentci/pkg/schema"
 )
@@ -58,6 +62,12 @@ func newCompileCmd() *cobra.Command {
 		Use:   "compile",
 		Short: "Compile Markdown requirements into canonical Intent IR",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "text" && format != "json" {
+				return exitErr(exitcode.Usage, "unsupported format %q", format)
+			}
+			if cmd.Flags().Changed("requirement") && strings.TrimSpace(requirement) == "" {
+				return exitErr(exitcode.Usage, "--requirement must not be empty")
+			}
 			root, err := getwd()
 			if err != nil {
 				return exitErr(exitcode.Internal, "%v", err)
@@ -70,6 +80,9 @@ func newCompileCmd() *cobra.Command {
 			}
 			if err != nil {
 				return exitErr(exitcode.CompileFailed, "%v", err)
+			}
+			if requirement != "" && len(res.Document.Requirements) == 0 {
+				return exitErr(exitcode.Usage, "requirement %q not found", requirement)
 			}
 			store, err := evidence.NewStore(root, mustConfig(root).Evidence.Directory)
 			if err != nil {
@@ -109,8 +122,9 @@ func mustConfig(root string) *config.Config {
 }
 
 func newVerifyCmd() *cobra.Command {
-	var all, changed, noCache bool
-	var base, requirement, obligation, format, output string
+	var all, changed, noCache, failFast, noGit bool
+	var base, head, requirement, obligation, providerID, format, output string
+	var maxParallel int
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Compile, select, execute providers, and emit verdicts",
@@ -119,13 +133,32 @@ func newVerifyCmd() *cobra.Command {
 			if err != nil {
 				return exitErr(exitcode.Internal, "%v", err)
 			}
+			if all && changed {
+				return exitErr(exitcode.Usage, "--all and --changed are mutually exclusive")
+			}
+			if format != "text" && format != "json" && format != "junit" {
+				return exitErr(exitcode.Usage, "unsupported format %q", format)
+			}
+			if maxParallel < 0 {
+				return exitErr(exitcode.Usage, "--max-parallel must be >= 0")
+			}
+			for name, value := range map[string]string{
+				"requirement": requirement, "obligation": obligation, "provider": providerID,
+			} {
+				if cmd.Flags().Changed(name) && strings.TrimSpace(value) == "" {
+					return exitErr(exitcode.Usage, "--%s must not be empty", name)
+				}
+			}
 			if !all && !changed && requirement == "" {
 				changed = true
 			}
-			out, err := verify.Run(context.Background(), verify.Options{
-				Root: root, Base: base, All: all, Changed: changed,
+			out, err := runVerification(cmd.Context(), verify.Options{
+				Root: root, Base: base, Head: head, All: all, Changed: changed,
 				RequirementID: requirement, ObligationID: obligation,
-				NoCache: noCache, Format: format,
+				ProviderID: providerID, MaxParallel: maxParallel,
+				MaxParallelSet: cmd.Flags().Changed("max-parallel"),
+				FailFast:       failFast, FailFastSet: cmd.Flags().Changed("fail-fast"),
+				NoGit: noGit, NoCache: noCache, Format: format,
 			})
 			if err != nil {
 				code := exitcode.Internal
@@ -136,16 +169,16 @@ func newVerifyCmd() *cobra.Command {
 			}
 			_ = report.WriteGitHubStepSummary(out.Bundle)
 			w := cmd.OutOrStdout()
-			var file *os.File
 			if output != "" {
-				file, err = os.Create(output)
-				if err != nil {
+				var rendered bytes.Buffer
+				_ = report.Write(&rendered, format, out.Bundle)
+				if err := writeReportFile(root, output, rendered.Bytes()); err != nil {
+					if security.IsPathViolation(err) {
+						return exitErr(exitcode.SecurityBoundary, "%v", err)
+					}
 					return exitErr(exitcode.Internal, "%v", err)
 				}
-				defer file.Close()
-				w = file
-			}
-			if err := report.Write(w, format, out.Bundle); err != nil {
+			} else if err := report.Write(w, format, out.Bundle); err != nil {
 				return exitErr(exitcode.Usage, "%v", err)
 			}
 			if out.ExitCode != exitcode.Pass {
@@ -157,13 +190,65 @@ func newVerifyCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "Verify all active requirements")
 	cmd.Flags().BoolVar(&changed, "changed", false, "Verify requirements affected by the Git diff")
 	cmd.Flags().StringVar(&base, "base", "", "Git base ref")
+	cmd.Flags().StringVar(&head, "head", "", "Git head ref")
 	cmd.Flags().StringVar(&requirement, "requirement", "", "Requirement id")
 	cmd.Flags().StringVar(&obligation, "obligation", "", "Obligation id")
+	cmd.Flags().StringVar(&providerID, "provider", "", "Verifier provider id")
+	cmd.Flags().IntVar(&maxParallel, "max-parallel", 0, "Override verification.max_parallel")
+	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "Stop scheduling after the first non-pass result")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Disable provider cache")
+	cmd.Flags().BoolVar(&noGit, "no-git", false, "Verify without Git provenance (requires --all or --requirement)")
 	cmd.Flags().StringVar(&format, "format", "text", "text|json|junit")
 	cmd.Flags().StringVar(&output, "output", "", "Write report to path")
 	return cmd
 }
+
+func writeReportFile(root, relative string, content []byte) error {
+	path := relative
+	if !filepath.IsAbs(path) {
+		var err error
+		path, err = security.ResolveInside(root, relative)
+		if err != nil {
+			return err
+		}
+	}
+	if err := makeReportDirs(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := createReportTemp(filepath.Dir(path), ".intentci-report-*")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	defer removeReportFile(name)
+	written, err := file.Write(content)
+	if err != nil {
+		file.Close()
+		return err
+	}
+	if written != len(content) {
+		file.Close()
+		return io.ErrShortWrite
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return renameReportFile(name, path)
+}
+
+type reportTempFile interface {
+	io.Writer
+	Name() string
+	Close() error
+}
+
+var makeReportDirs = os.MkdirAll
+var createReportTemp = func(directory, pattern string) (reportTempFile, error) {
+	return os.CreateTemp(directory, pattern)
+}
+var removeReportFile = os.Remove
+var renameReportFile = os.Rename
+var runVerification = verify.Run
 
 func newExplainCmd() *cobra.Command {
 	var runID string
@@ -179,6 +264,9 @@ func newExplainCmd() *cobra.Command {
 				return exitErr(exitcode.Internal, "%v", err)
 			}
 			cfg := mustConfig(root)
+			if format != "text" && format != "json" {
+				return exitErr(exitcode.Usage, "unsupported format %q", format)
+			}
 			store, err := evidence.NewStore(root, cfg.Evidence.Directory)
 			if err != nil {
 				return exitErr(exitcode.Internal, "%v", err)
@@ -192,18 +280,21 @@ func newExplainCmd() *cobra.Command {
 			if err != nil {
 				return exitErr(exitcode.Usage, "no run to explain: %v", err)
 			}
-			_ = showLogs
 			if format == "json" {
-				for _, r := range b.Run.Requirements {
-					if r.ID == args[0] {
-						enc := json.NewEncoder(cmd.OutOrStdout())
-						enc.SetIndent("", "  ")
-						return enc.Encode(r)
-					}
+				value, found := explainJSONValue(b, args[0])
+				if !found {
+					return exitErr(exitcode.Usage, "identifier %q not found", args[0])
 				}
-				return exitErr(exitcode.Usage, "requirement %q not found", args[0])
+				if showLogs {
+					value = map[string]any{"result": value, "provider_results": b.ProviderLogs}
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(value)
 			}
-			if err := report.Explain(cmd.OutOrStdout(), b, args[0], showEvidence); err != nil {
+			if err := report.ExplainWithOptions(cmd.OutOrStdout(), b, args[0], report.ExplainOptions{
+				ShowEvidence: showEvidence, ShowLogs: showLogs,
+			}); err != nil {
 				return exitErr(exitcode.Usage, "%v", err)
 			}
 			return nil
@@ -217,13 +308,38 @@ func newExplainCmd() *cobra.Command {
 }
 
 func newRepairCmd() *cobra.Command {
-	var agentCommand, requirement string
+	var agent, agentCommand, requirement string
 	var maxAttempts int
 	var dryRun, changed, allowTest bool
 	cmd := &cobra.Command{
 		Use:   "repair",
 		Short: "Run a bounded agent repair loop",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if agent != "" && agentCommand != "" {
+				return exitErr(exitcode.Usage, "--agent and --agent-command are mutually exclusive")
+			}
+			if maxAttempts < 0 || (cmd.Flags().Changed("max-attempts") && maxAttempts < 1) {
+				return exitErr(exitcode.Usage, "--max-attempts must be >= 1")
+			}
+			if cmd.Flags().Changed("requirement") && strings.TrimSpace(requirement) == "" {
+				return exitErr(exitcode.Usage, "--requirement must not be empty")
+			}
+			if cmd.Flags().Changed("agent") && strings.TrimSpace(agent) == "" {
+				return exitErr(exitcode.Usage, "--agent must not be empty")
+			}
+			if cmd.Flags().Changed("agent-command") && strings.TrimSpace(agentCommand) == "" {
+				return exitErr(exitcode.Usage, "--agent-command must not be empty")
+			}
+			if agent != "" {
+				if !validAdapterName(agent) {
+					return exitErr(exitcode.Usage, "invalid agent name %q", agent)
+				}
+				path, err := exec.LookPath("intentci-agent-" + agent)
+				if err != nil {
+					return exitErr(exitcode.Usage, "agent %q not found on PATH", agent)
+				}
+				agentCommand = fmt.Sprintf("%q {packet}", path)
+			}
 			root, err := getwd()
 			if err != nil {
 				return exitErr(exitcode.Internal, "%v", err)
@@ -235,22 +351,37 @@ func newRepairCmd() *cobra.Command {
 			if allowTest {
 				cfg.Repair.AllowTestChanges = true
 			}
+			compiled, err := compiler.Compile(compiler.Options{Root: root, Config: cfg, Strict: true})
+			if err != nil {
+				return exitErr(exitcode.CompileFailed, "%v", err)
+			}
 			store, err := evidence.NewStore(root, cfg.Evidence.Directory)
 			if err != nil {
 				return exitErr(exitcode.Internal, "%v", err)
 			}
-			_ = requirement
-			out, err := repair.Run(context.Background(), repair.Options{
+			store.RedactPatterns = append([]string{}, cfg.Evidence.Redact.Environment...)
+			runID := evidence.NewRunID()
+			attempt := 0
+			if agentCommand != "" && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "WARNING: repair executes the agent on the host with your current user permissions; IntentCI v1 is not a sandbox.")
+			}
+			out, err := repair.Run(cmd.Context(), repair.Options{
 				Root: root, Config: cfg, Store: store, AgentCommand: agentCommand,
 				MaxAttempts: maxAttempts, DryRun: dryRun,
 				Verify: func(ctx context.Context) (*evidence.Bundle, error) {
-					o, err := verify.Run(ctx, verify.Options{
+					attempt++
+					o, err := runVerification(ctx, verify.Options{
 						Root: root, All: !changed, Changed: changed, RequirementID: requirement, NoCache: true,
+						Config: cfg, Document: compiled.Document, RunID: runID,
+						AttemptID: fmt.Sprintf("attempt-%03d", attempt), AttemptOnly: true,
 					})
 					if err != nil {
 						return nil, err
 					}
 					return o.Bundle, nil
+				},
+				Finalize: func(bundle *evidence.Bundle) error {
+					return verify.FinalizeBundle(store, bundle)
 				},
 			})
 			if err != nil {
@@ -268,6 +399,7 @@ func newRepairCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&agent, "agent", "", "Agent name resolved as intentci-agent-NAME on PATH")
 	cmd.Flags().StringVar(&agentCommand, "agent-command", "", "Shell command; {packet} is replaced with packet path")
 	cmd.Flags().StringVar(&requirement, "requirement", "", "Limit to requirement id")
 	cmd.Flags().IntVar(&maxAttempts, "max-attempts", 0, "Override repair.max_attempts")
@@ -275,6 +407,19 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&changed, "changed", false, "Verify changed requirements each attempt")
 	cmd.Flags().BoolVar(&allowTest, "allow-test-changes", false, "Allow the agent to modify tests")
 	return cmd
+}
+
+func validAdapterName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func newStatusCmd() *cobra.Command {
@@ -295,10 +440,19 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return exitErr(exitcode.Usage, "no runs yet: %v", err)
 			}
+			compiled, err := compiler.Compile(compiler.Options{Root: root, Config: cfg})
+			if err != nil {
+				return exitErr(exitcode.CompileFailed, "%v", err)
+			}
+			latest := map[string]string{}
+			for _, result := range b.Run.Requirements {
+				latest[result.ID] = result.Verdict
+			}
 			active, verified, failed, unproven, uncertain := 0, 0, 0, 0, 0
-			for _, r := range b.Run.Requirements {
+			review, errors, skipped := 0, 0, 0
+			for _, requirement := range compiled.Document.ActiveRequirements() {
 				active++
-				switch r.Verdict {
+				switch latest[requirement.ID] {
 				case "pass":
 					verified++
 				case "fail":
@@ -307,10 +461,24 @@ func newStatusCmd() *cobra.Command {
 					unproven++
 				case "uncertain":
 					uncertain++
+				case "review_required":
+					review++
+				case "error":
+					errors++
+				case "skipped":
+					skipped++
+				default:
+					unproven++
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Requirements: %d active\nVerified:     %d\nFailed:        %d\nUnproven:      %d\nUncertain:     %d\nLast run:      %s\nCommit:        %s\n",
-				active, verified, failed, unproven, uncertain, b.CreatedAt.Format(timeRFC3339), short(b.HeadCommit))
+			fmt.Fprintf(cmd.OutOrStdout(), "Requirements: %d active\nVerified:     %d\nFailed:        %d\nUnproven:      %d\nUncertain:     %d\nReview:        %d\nErrors:        %d\nSkipped:       %d\nLast run:      %s\nCommit:        %s\n",
+				active, verified, failed, unproven, uncertain, review, errors, skipped,
+				b.CreatedAt.Format(timeRFC3339), short(b.HeadCommit))
+			if b.RepositoryState != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Base:          %s\nDirty:         %t\nChanged files: %d\n",
+					short(b.RepositoryState.BaseCommit), b.RepositoryState.WorkingTreeDirty,
+					len(b.RepositoryState.ChangedFiles))
+			}
 			return nil
 		},
 	}
@@ -383,7 +551,7 @@ func newDoctorCmd() *cobra.Command {
 func newSchemaCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "schema [name]",
-		Short: "Print a JSON schema (requirement|evidence|verdict|repair|ir)",
+		Short: "Print a JSON schema (requirement|evidence|verdict|repair|ir|plan|report)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var raw []byte
@@ -398,6 +566,10 @@ func newSchemaCmd() *cobra.Command {
 				raw = appschema.RepairJSON
 			case "ir", "intent":
 				raw = appschema.IRJSON
+			case "report":
+				raw = appschema.ReportJSON
+			case "plan":
+				raw = appschema.PlanJSON
 			default:
 				return exitErr(exitcode.Usage, "unknown schema %q", args[0])
 			}
@@ -405,4 +577,31 @@ func newSchemaCmd() *cobra.Command {
 			return err
 		},
 	}
+}
+
+func explainJSONValue(bundle *evidence.Bundle, id string) (any, bool) {
+	if id == bundle.RunID {
+		return bundle, true
+	}
+	for _, requirement := range bundle.Run.Requirements {
+		if requirement.ID == id {
+			return requirement, true
+		}
+		for _, obligation := range requirement.Obligations {
+			if obligation.ID == id {
+				return obligation, true
+			}
+			for _, record := range obligation.Evidence {
+				if record.ID == id || record.VerifierID == id {
+					return record, true
+				}
+			}
+		}
+	}
+	for key, result := range bundle.ProviderLogs {
+		if key == id || strings.HasSuffix(key, "/"+id) {
+			return result, true
+		}
+	}
+	return nil, false
 }

@@ -49,7 +49,6 @@ allowed:
   - scripts/**
   - docs/**
   - examples/**
-  - tests/**
   - .github/**
   - .intentci/**
 forbidden: []
@@ -65,8 +64,13 @@ forbidden: []
     all:
       - provider: command
         id: go-test
-        run: "go test ./..."
+        run: "go test ./... && printf 'intentci-ok\n'"
+        inherit_environment:
+          - HOME
+          - GOCACHE
         result:
           type: exit_code
           equals: 0
+          stdout:
+            contains: intentci-ok
 ```

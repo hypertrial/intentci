@@ -69,6 +69,7 @@ x
 ` + "```yaml" + `
 - id: OBL-001
   statement: s
+  required: true
   verify:
     all:
       - provider: command

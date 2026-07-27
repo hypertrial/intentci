@@ -38,7 +38,7 @@ func TestExampleLanguagesAndErrors(t *testing.T) {
 				t.Fatal(s)
 			}
 		default:
-			if !strings.Contains(s, `"true"`) {
+			if !strings.Contains(s, "intentci-ok") {
 				t.Fatal(s)
 			}
 		}

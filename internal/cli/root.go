@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -18,7 +21,9 @@ func ExecuteWith(args []string, stdout, stderr io.Writer) error {
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	return root.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return root.ExecuteContext(ctx)
 }
 
 func newRoot() *cobra.Command {

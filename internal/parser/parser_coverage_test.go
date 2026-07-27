@@ -210,6 +210,7 @@ forbidden:
 ` + "```" + `
 - id: O
   statement: s
+  required: true
   verify:
     all:
       - provider: command

@@ -61,13 +61,14 @@ func (p *BoundaryProvider) Execute(ctx context.Context, req Request) Result {
 		summary = fmt.Sprintf("boundary violations: %v", violations)
 	}
 	return Result{
-		Provider:        p.Name(),
-		ProviderVersion: p.Version(),
-		Status:          "completed",
-		DurationMS:      time.Since(start).Milliseconds(),
+		Provider:          p.Name(),
+		ProviderVersion:   p.Version(),
+		Status:            "completed",
+		SecurityViolation: !passed,
+		DurationMS:        time.Since(start).Milliseconds(),
 		Evidence: []Evidence{{
 			ID:      firstNonEmpty(req.Spec.ID, "boundary"),
-			Class:   "deterministic",
+			Class:   firstNonEmpty(req.Spec.EvidenceClass, req.EvidenceClass, "deterministic"),
 			Summary: summary,
 			Paths:   violations,
 			Passed:  boolPtr(passed),

@@ -32,8 +32,13 @@ Local-first operation requires explicit opt-in for any outbound product telemetr
     all:
       - provider: command
         id: telemetry-default
-        run: "go test ./internal/config -run TestDefaultAndValidate"
+        run: "go test ./internal/config -run TestDefaultAndValidate && printf 'intentci-ok\n'"
+        inherit_environment:
+          - HOME
+          - GOCACHE
         result:
           type: exit_code
           equals: 0
+          stdout:
+            contains: intentci-ok
 ```

@@ -46,12 +46,28 @@ requirements:
 verification:
   default_timeout: 10m
   max_parallel: 4
+  fail_fast: false
   working_directory: .
+  require_clean_worktree: false
 
 change_impact:
   base_ref: origin/main
   include_untracked: true
   run_unmapped_requirements: false
+  fail_on_unmapped: false
+  global_paths:
+    - .intentci/config.yaml
+    - .intentci/providers/**
+    - .intentci/schemas/**
+    - go.mod
+    - go.sum
+    - package.json
+    - package-lock.json
+    - pyproject.toml
+    - uv.lock
+    - Cargo.toml
+    - Cargo.lock
+    - pom.xml
 
 evidence:
   directory: .intentci/runs
@@ -71,6 +87,7 @@ repair:
   stop_on_repeated_failure: true
   allow_requirement_changes: false
   allow_test_changes: true
+  protected_paths: []
 
 ci:
   fail_on:
@@ -128,23 +145,24 @@ jobs:
 }
 
 func exampleRequirement(language string) string {
-	cmd := `"true"`
+	cmd := `"printf 'intentci-ok\n'"`
 	switch language {
 	case "go":
-		cmd = `"go test ./..."`
+		cmd = `"(go test ./...) && printf 'intentci-ok\n'"`
 	case "python":
-		cmd = `"pytest -q"`
+		cmd = `"(pytest -q) && printf 'intentci-ok\n'"`
 	case "typescript", "ts":
-		cmd = `"npm test"`
+		cmd = `"(npm test) && printf 'intentci-ok\n'"`
 	case "rust":
-		cmd = `"cargo test"`
+		cmd = `"(cargo test) && printf 'intentci-ok\n'"`
 	}
 	return fmt.Sprintf(`---
 id: REQ-001
 title: Example requirement
 status: active
 priority: required
-owners: []
+owners:
+  - repository-maintainers
 depends_on: []
 applies_to:
   paths:
@@ -173,14 +191,6 @@ Provides a starting obligation mapped to an existing test command.
 - id: CON-002
   statement: Do not invent a parallel test framework.
 
-# Boundaries
-
-`+"```yaml"+`
-allowed:
-  - "**"
-forbidden: []
-`+"```"+`
-
 # Obligations
 
 `+"```yaml"+`
@@ -195,7 +205,8 @@ forbidden: []
         result:
           type: exit_code
           equals: 0
+          stdout:
+            contains: intentci-ok
 `+"```"+`
 `, cmd)
 }
-

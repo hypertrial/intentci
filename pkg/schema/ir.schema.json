@@ -3,11 +3,15 @@
   "$id": "https://intentci.dev/schemas/ir-v1.json",
   "title": "IntentCI Compiled Intent IR",
   "type": "object",
+  "additionalProperties": false,
   "required": ["schema_version", "project", "hash", "requirements"],
   "properties": {
-    "schema_version": { "type": "integer" },
-    "project": { "type": "string" },
-    "hash": { "type": "string" },
-    "requirements": { "type": "array" }
+    "schema_version": { "const": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "requirements": {
+      "type": "array",
+      "items": { "$ref": "requirement-v1.json" }
+    }
   }
 }

@@ -23,8 +23,8 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err := store.WriteBundle(b); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.WriteRepairPacket(id, map[string]any{"run_id": id}); err != nil {
-		t.Fatal(err)
+	if err := store.WriteRepairPacket(id, map[string]any{"run_id": id}); err == nil {
+		t.Fatal("finalized run accepted a new repair packet")
 	}
 	got, err := store.LoadLatest()
 	if err != nil || got.RunID != id {

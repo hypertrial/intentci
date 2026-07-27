@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,22 +24,28 @@ import (
 
 // Packet is the structured repair packet for agents.
 type Packet struct {
-	RunID        string    `json:"run_id"`
-	Requirement  string    `json:"requirement_id,omitempty"`
-	Verdict      string    `json:"verdict"`
-	Summary      string    `json:"summary"`
-	AllowedPaths []string  `json:"allowed_paths,omitempty"`
-	Forbidden    []string  `json:"forbidden_paths,omitempty"`
-	Failures     []Failure `json:"failures"`
-	Attempt      int       `json:"attempt"`
-	MaxAttempts  int       `json:"max_attempts"`
+	RunID              string    `json:"run_id"`
+	Requirement        string    `json:"requirement_id,omitempty"`
+	Verdict            string    `json:"verdict"`
+	Summary            string    `json:"summary"`
+	Intent             string    `json:"intent,omitempty"`
+	AllowedPaths       []string  `json:"allowed_paths,omitempty"`
+	Forbidden          []string  `json:"forbidden_paths,omitempty"`
+	ProtectedPaths     []string  `json:"protected_paths,omitempty"`
+	TestChangesAllowed bool      `json:"test_changes_allowed"`
+	Instructions       []string  `json:"instructions,omitempty"`
+	Failures           []Failure `json:"failures"`
+	Attempt            int       `json:"attempt"`
+	MaxAttempts        int       `json:"max_attempts"`
 }
 
 type Failure struct {
-	Requirement string `json:"requirement_id"`
-	Obligation  string `json:"obligation_id"`
-	Verdict     string `json:"verdict"`
-	Reason      string `json:"reason"`
+	Requirement string   `json:"requirement_id"`
+	Obligation  string   `json:"obligation_id"`
+	Verdict     string   `json:"verdict"`
+	Reason      string   `json:"reason"`
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+	Paths       []string `json:"paths,omitempty"`
 }
 
 // Options configures the repair loop.
@@ -50,6 +57,7 @@ type Options struct {
 	MaxAttempts  int
 	DryRun       bool
 	Verify       func(ctx context.Context) (*evidence.Bundle, error)
+	Finalize     func(bundle *evidence.Bundle) error
 }
 
 // Outcome is the repair loop result.
@@ -66,6 +74,11 @@ func BuildPacket(b *evidence.Bundle, attempt, max int, requirementID string) Pac
 		RunID: b.RunID, Requirement: requirementID, Verdict: b.Run.Verdict,
 		Attempt: attempt, MaxAttempts: max,
 		Summary: "IntentCI verification did not pass; repair the failing obligations.",
+		Instructions: []string{
+			"Change only files inside allowed paths and never files inside forbidden or protected paths.",
+			"Do not weaken, remove, or bypass required verification selectors.",
+			"Do not claim success; IntentCI will independently rerun verification.",
+		},
 	}
 	for _, r := range b.Run.Requirements {
 		if requirementID != "" && r.ID != requirementID {
@@ -75,15 +88,28 @@ func BuildPacket(b *evidence.Bundle, attempt, max int, requirementID string) Pac
 			if o.Verdict == verdict.Pass || o.Verdict == verdict.Skipped {
 				continue
 			}
-			p.Failures = append(p.Failures, Failure{
+			failure := Failure{
 				Requirement: r.ID, Obligation: o.ID, Verdict: o.Verdict, Reason: o.Reason,
-			})
+			}
+			for _, record := range o.Evidence {
+				failure.EvidenceIDs = append(failure.EvidenceIDs, record.ID)
+				failure.Paths = append(failure.Paths, record.Paths...)
+			}
+			failure.EvidenceIDs = uniqueSorted(failure.EvidenceIDs)
+			failure.Paths = uniqueSorted(failure.Paths)
+			p.Failures = append(p.Failures, failure)
 		}
 	}
 	if b.Document != nil {
 		for _, r := range b.Document.Requirements {
 			if requirementID != "" && r.ID != requirementID {
 				continue
+			}
+			if r.Intent != "" {
+				if p.Intent != "" {
+					p.Intent += "\n\n"
+				}
+				p.Intent += r.ID + ": " + r.Intent
 			}
 			p.AllowedPaths = append(p.AllowedPaths, r.Boundaries.Allowed...)
 			p.Forbidden = append(p.Forbidden, r.Boundaries.Forbidden...)
@@ -95,7 +121,16 @@ func BuildPacket(b *evidence.Bundle, attempt, max int, requirementID string) Pac
 }
 
 // Run executes the bounded repair loop.
-func Run(ctx context.Context, opt Options) (*Outcome, error) {
+func Run(ctx context.Context, opt Options) (outcome *Outcome, runErr error) {
+	defer func() {
+		if outcome == nil || outcome.Bundle == nil || opt.Finalize == nil {
+			return
+		}
+		if err := opt.Finalize(outcome.Bundle); err != nil && runErr == nil {
+			outcome.ExitCode = exitcode.Internal
+			runErr = err
+		}
+	}()
 	max := opt.MaxAttempts
 	if max <= 0 {
 		max = opt.Config.Repair.MaxAttempts
@@ -107,11 +142,12 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 	var last *evidence.Bundle
 	var diffFingerprints []string
 	var failFingerprints []string
+	agentErrors := 0
 	initial, err := git.Resolve(opt.Root, "HEAD")
 	if err != nil {
 		return &Outcome{ExitCode: exitcode.Internal}, err
 	}
-	if violations := security.ProtectedViolation(initial.ChangedFiles, opt.Config.Repair.AllowRequirementChanges, nil); len(violations) > 0 {
+	if violations := security.ProtectedViolation(initial.ChangedFiles, opt.Config.Repair.AllowRequirementChanges, opt.Config.Repair.ProtectedPaths); len(violations) > 0 {
 		return &Outcome{ExitCode: exitcode.SecurityBoundary, Stopped: "preexisting_protected_path:" + strings.Join(violations, ",")}, nil
 	}
 
@@ -121,18 +157,32 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 			return &Outcome{ExitCode: exitcode.Internal, Attempts: attempt}, err
 		}
 		last = b
+		if ctx.Err() != nil || b.Interrupted {
+			b.Interrupted = true
+			b.Run.Verdict = verdict.Error
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.VerifierError, Stopped: "interrupted"}, nil
+		}
 		if b.Run.Verdict == verdict.Pass {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Pass}, nil
 		}
+		if b.Run.Verdict == verdict.ReviewRequired {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: verdict.ExitCode(verdict.ReviewRequired), Stopped: "review_required"}, nil
+		}
 
 		packet := BuildPacket(b, attempt, max, "")
-		if err := opt.Store.WriteRepairPacket(b.RunID, packet); err != nil {
+		packet.ProtectedPaths = uniqueSorted(append(append([]string{}, security.DefaultProtected...), opt.Config.Repair.ProtectedPaths...))
+		packet.TestChangesAllowed = opt.Config.Repair.AllowTestChanges
+		attemptID := b.AttemptID
+		if attemptID == "" {
+			attemptID = fmt.Sprintf("attempt-%03d", attempt)
+		}
+		packetPath, err := opt.Store.WriteRepairPacketForAttempt(b.RunID, attemptID, packet)
+		if err != nil {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
 		}
-		packetPath := filepath.Join(opt.Store.Dir(b.RunID), "repair-packet.json")
 
 		fp := failureFingerprint(packet)
-		if opt.Config.Repair.StopOnRepeatedFailure && contains(failFingerprints, fp) {
+		if agentErrors == 0 && opt.Config.Repair.StopOnRepeatedFailure && contains(failFingerprints, fp) {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.RepairExhausted, Stopped: "repeated_failure"}, nil
 		}
 		failFingerprints = append(failFingerprints, fp)
@@ -149,6 +199,13 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
 		}
 		ignoreStoreFiles(before, opt.Root, opt.Store.Root)
+		beforePatch, err := takePatch(opt.Root, opt.Store.Root)
+		if err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
+		if err := opt.Store.WriteRepairArtifact(b.RunID, attemptID, "patch-before.diff", beforePatch); err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
 		cmdStr := strings.ReplaceAll(opt.AgentCommand, "{packet}", packetPath)
 		cmdStr = strings.ReplaceAll(cmdStr, "{repository}", opt.Root)
 		cmdStr = strings.ReplaceAll(cmdStr, "{attempt}", fmt.Sprintf("%d", attempt))
@@ -157,17 +214,45 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-		_ = cmd.Run()
-		_ = os.WriteFile(filepath.Join(opt.Store.Dir(b.RunID), fmt.Sprintf("agent-attempt-%d.log", attempt)),
-			append(stdout.Bytes(), stderr.Bytes()...), 0o644)
+		agentErr := cmd.Run()
+		if err := opt.Store.WriteAgentLog(b.RunID, attemptID, "stdout", stdout.Bytes()); err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
+		if err := opt.Store.WriteAgentLog(b.RunID, attemptID, "stderr", stderr.Bytes()); err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
+		exitRecord := map[string]any{"status": "completed", "exit_code": 0}
+		if agentErr != nil {
+			exitRecord["status"] = "error"
+			exitRecord["error"] = agentErr.Error()
+			exitRecord["exit_code"] = agentExitCode(agentErr)
+			agentErrors++
+		} else {
+			agentErrors = 0
+		}
+		exitRaw, _ := json.MarshalIndent(exitRecord, "", "  ")
+		if err := opt.Store.WriteRepairArtifact(b.RunID, attemptID, "agent-exit.json", append(exitRaw, '\n')); err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
+		if ctx.Err() != nil {
+			b.Interrupted = true
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.VerifierError, Stopped: "interrupted"}, nil
+		}
 
 		after, err := takeSnapshot(opt.Root)
 		if err != nil {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
 		}
 		ignoreStoreFiles(after, opt.Root, opt.Store.Root)
+		afterPatch, err := takePatch(opt.Root, opt.Store.Root)
+		if err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
+		if err := opt.Store.WriteRepairArtifact(b.RunID, attemptID, "patch-after.diff", afterPatch); err != nil {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.Internal}, err
+		}
 		changed := diffPaths(before, after)
-		if viol := security.ProtectedViolation(changed, opt.Config.Repair.AllowRequirementChanges, nil); len(viol) > 0 {
+		if viol := security.ProtectedViolation(changed, opt.Config.Repair.AllowRequirementChanges, opt.Config.Repair.ProtectedPaths); len(viol) > 0 {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.SecurityBoundary, Stopped: "protected_path:" + strings.Join(viol, ",")}, nil
 		}
 		if viol := security.BoundaryViolations(changed, packet.AllowedPaths, packet.Forbidden); len(viol) > 0 {
@@ -185,9 +270,77 @@ func Run(ctx context.Context, opt Options) (*Outcome, error) {
 			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.RepairExhausted, Stopped: "repeated_diff"}, nil
 		}
 		diffFingerprints = append(diffFingerprints, dfp)
+		if agentErrors >= 2 {
+			return &Outcome{Bundle: b, Attempts: attempt, ExitCode: exitcode.RepairExhausted, Stopped: "repeated_agent_error"}, nil
+		}
 	}
 
 	return &Outcome{Bundle: last, Attempts: max, ExitCode: exitcode.RepairExhausted, Stopped: "max_attempts"}, nil
+}
+
+func agentExitCode(err error) int {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		return exitError.ExitCode()
+	}
+	return -1
+}
+
+func capturePatch(root, storeRoot string) ([]byte, error) {
+	arguments := []string{"diff", "--binary", "--no-ext-diff", "HEAD", "--", "."}
+	excluded := storePrefix(root, storeRoot)
+	if excluded != "" {
+		arguments = append(arguments, ":(exclude)"+excluded+"/**")
+	}
+	tracked, err := gitOutput(root, arguments...)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := gitOutput(root, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	output.Write(tracked)
+	for _, relative := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if relative == "" {
+			continue
+		}
+		if excluded != "" && (relative == excluded || strings.HasPrefix(filepath.ToSlash(relative), excluded+"/")) {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&output, "\nintentci-untracked %s sha256=%s\n", filepath.ToSlash(relative), hashBytes(content))
+		output.Write(content)
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			output.WriteByte('\n')
+		}
+	}
+	return output.Bytes(), nil
+}
+
+var takePatch = capturePatch
+
+var gitOutput = func(root string, arguments ...string) ([]byte, error) {
+	command := exec.Command("git", arguments...)
+	command.Dir = root
+	return command.Output()
+}
+
+func storePrefix(root, storeRoot string) string {
+	relative, err := filepath.Rel(root, storeRoot)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.ToSlash(relative)
+}
+
+func hashBytes(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func failureFingerprint(p Packet) string {

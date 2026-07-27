@@ -26,11 +26,11 @@ func TestValidateAllProviders(t *testing.T) {
 		{"git-diff", ir.ProviderSpec{}, 1},
 		{"git-diff", ir.ProviderSpec{Paths: []string{"a"}}, 0},
 		{"json", ir.ProviderSpec{}, 1},
-		{"json", ir.ProviderSpec{Report: "x"}, 0},
+		{"json", ir.ProviderSpec{Report: "x", Assert: map[string]any{"x": true}}, 0},
 		{"junit", ir.ProviderSpec{}, 1},
 		{"junit", ir.ProviderSpec{Report: "x"}, 0},
 		{"sarif", ir.ProviderSpec{}, 1},
-		{"sarif", ir.ProviderSpec{Run: "true"}, 0},
+		{"sarif", ir.ProviderSpec{Run: "true"}, 1},
 		{"manual", ir.ProviderSpec{}, 0},
 	}
 	for _, c := range checks {
@@ -146,7 +146,7 @@ func TestJSONErrorsAndLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = p.Execute(context.Background(), provider.Request{
-		Root: root, Spec: ir.ProviderSpec{Report: path, Assert: map[string]any{"ok": true}},
+		Root: root, Spec: ir.ProviderSpec{Report: "bad.json", Assert: map[string]any{"ok": true}},
 	})
 	if res.Evidence[0].Passed == nil || *res.Evidence[0].Passed {
 		t.Fatalf("lookup nil should fail assert %+v", res)
@@ -218,7 +218,7 @@ func TestJUnitBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = p.Execute(context.Background(), provider.Request{
-		Root: root, Spec: ir.ProviderSpec{Report: path},
+		Root: root, Spec: ir.ProviderSpec{Report: "bad.xml"},
 	})
 	if *res.Evidence[0].Passed {
 		t.Fatal(res)
@@ -303,11 +303,11 @@ func TestSARIFBranches(t *testing.T) {
 	if res.Status != "error" {
 		t.Fatal(res)
 	}
-	if err := os.WriteFile(path, []byte(`{"runs":[{"results":[{},{}]}]}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":"2.1.0","runs":[{"results":[{},{}]}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res = p.Execute(context.Background(), provider.Request{
-		Root: root, Spec: ir.ProviderSpec{ID: "s", Report: path}, RetainStdout: true,
+		Root: root, Spec: ir.ProviderSpec{ID: "s", Report: "bad.sarif"}, RetainStdout: true,
 	})
 	if *res.Evidence[0].Passed {
 		t.Fatal("expected findings fail")
@@ -317,7 +317,7 @@ func TestSARIFBranches(t *testing.T) {
 		Root: root,
 		Spec: ir.ProviderSpec{
 			ID: "fresh", Report: "fresh.sarif",
-			Run: `printf '{"runs":[{"results":[]}]}' > fresh.sarif; exit 1`,
+			Run: `printf '{"version":"2.1.0","runs":[{"results":[]}]}' > fresh.sarif; exit 1`,
 		},
 		RetainStdout: true,
 	})
@@ -329,7 +329,7 @@ func TestSARIFBranches(t *testing.T) {
 		Root: root,
 		Spec: ir.ProviderSpec{
 			ID: "fresh-fail", Report: "fresh-fail.sarif",
-			Run: `printf '{"runs":[{"results":[{}]}]}' > fresh-fail.sarif; exit 1`,
+			Run: `printf '{"version":"2.1.0","runs":[{"results":[{}]}]}' > fresh-fail.sarif; exit 1`,
 		},
 	})
 	if res.Status != "completed" || *res.Evidence[0].Passed {
