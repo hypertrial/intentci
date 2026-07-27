@@ -1,0 +1,9 @@
+version: 2
+
+checks:
+  - id: go-tests
+    intent: Calculator changes must keep Go tests passing.
+    paths:
+      - "**/*.go"
+      - go.mod
+    run: go test ./...

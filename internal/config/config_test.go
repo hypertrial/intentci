@@ -1,91 +1,82 @@
-package config_test
+package config
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/hypertrial/intentci/internal/config"
 )
 
-func TestDefaultAndValidate(t *testing.T) {
-	cfg := config.Default()
-	if err := cfg.Validate(); err != nil {
+func validConfig() Config {
+	return Config{Version: 2, Checks: []Check{{
+		ID: "go-tests", Intent: "Go tests pass.", Paths: []string{"**/*.go"}, Run: "go test ./...",
+	}}}
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*Config)
+		want   string
+	}{
+		{"version", func(c *Config) { c.Version = 1 }, "version must be 2"},
+		{"empty checks", func(c *Config) { c.Checks = nil }, "checks must not be empty"},
+		{"invalid id", func(c *Config) { c.Checks[0].ID = "Go Test" }, "must match"},
+		{"duplicate id", func(c *Config) { c.Checks = append(c.Checks, c.Checks[0]) }, "duplicate"},
+		{"empty intent", func(c *Config) { c.Checks[0].Intent = " " }, "intent"},
+		{"empty run", func(c *Config) { c.Checks[0].Run = "" }, "run"},
+		{"empty paths", func(c *Config) { c.Checks[0].Paths = nil }, "paths"},
+		{"absolute path", func(c *Config) { c.Checks[0].Paths = []string{"/tmp/**"} }, "invalid"},
+		{"traversal", func(c *Config) { c.Checks[0].Paths = []string{"../**"} }, "invalid"},
+		{"backslash", func(c *Config) { c.Checks[0].Paths = []string{`src\**`} }, "invalid"},
+		{"unclean path", func(c *Config) { c.Checks[0].Paths = []string{"src//**"} }, "invalid"},
+		{"invalid glob", func(c *Config) { c.Checks[0].Paths = []string{"["} }, "invalid glob"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validConfig()
+			test.change(&cfg)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Validate() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+	if err := validConfig().Validate(); err != nil {
 		t.Fatal(err)
-	}
-	if cfg.Telemetry.Enabled {
-		t.Fatal("telemetry must default false")
-	}
-	if cfg.MaxParallelOr(0) != 4 {
-		t.Fatalf("parallel=%d", cfg.MaxParallelOr(0))
-	}
-	if cfg.BaseRefOr("x") != "origin/main" {
-		t.Fatalf("base=%s", cfg.BaseRefOr("x"))
 	}
 }
 
-func TestLoadAndLocalOverride(t *testing.T) {
+func TestLoadStrictYAML(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, config.DirName)
-	if err := os.MkdirAll(filepath.Join(dir, "requirements"), 0o755); err != nil {
-		t.Fatal(err)
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, FileName), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	body := `version: 1
-project: {name: demo}
-requirements:
-  paths: [".intentci/requirements/**/*.md"]
-verification:
-  default_timeout: 1m
-  max_parallel: 2
-`
-	if err := os.WriteFile(filepath.Join(dir, config.ConfigFileName), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	local := `verification:
-  max_parallel: 8
-`
-	if err := os.WriteFile(filepath.Join(dir, config.LocalFileName), []byte(local), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load(root)
+	write(`version: 2
+checks:
+  - id: tests
+    intent: Tests pass.
+    paths: ["**"]
+    run: |
+      echo first
+      echo second
+`)
+	cfg, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Project.Name != "demo" || cfg.Verification.MaxParallel != 8 {
-		t.Fatalf("%+v", cfg)
+	if !strings.Contains(cfg.Checks[0].Run, "echo second") {
+		t.Fatalf("multiline command lost: %q", cfg.Checks[0].Run)
 	}
-}
 
-func TestValidateErrors(t *testing.T) {
-	cfg := config.Default()
-	cfg.Version = 2
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected version error")
+	write("version: 2\nchecks: []\nunknown: true\n")
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "field unknown") {
+		t.Fatalf("unknown field error = %v", err)
 	}
-	cfg = config.Default()
-	cfg.Project.Name = ""
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected name error")
-	}
-	cfg = config.Default()
-	cfg.Verification.DefaultTimeout = "nope"
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected timeout error")
-	}
-}
-
-func TestParseDuration(t *testing.T) {
-	d, err := config.ParseDuration("")
-	if err != nil || d.Minutes() != 10 {
-		t.Fatalf("%v %v", d, err)
-	}
-	if _, err := config.ParseDuration("0s"); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestLoadMissing(t *testing.T) {
-	if _, err := config.Load(t.TempDir()); err == nil {
-		t.Fatal("expected error")
+	write("version: 2\nchecks: []\n---\nversion: 2\n")
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "multiple YAML") {
+		t.Fatalf("multiple document error = %v", err)
 	}
 }
