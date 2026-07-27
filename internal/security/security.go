@@ -62,6 +62,18 @@ func ProtectedViolation(changed []string, allowRequirementChanges bool, extraPro
 	return hits
 }
 
+// BoundaryViolations returns files outside allowed paths or inside forbidden paths.
+func BoundaryViolations(changed, allowed, forbidden []string) []string {
+	var hits []string
+	for _, file := range changed {
+		file = filepath.ToSlash(file)
+		if matchAny(forbidden, file) || (len(allowed) > 0 && !matchAny(allowed, file)) {
+			hits = append(hits, file)
+		}
+	}
+	return hits
+}
+
 func isIntentciConfigPath(f string) bool {
 	f = filepath.ToSlash(f)
 	return f == ".intentci/config.yaml" ||

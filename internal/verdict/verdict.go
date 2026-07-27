@@ -204,11 +204,15 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 func AggregateRun(reqs []RequirementResult) RunResult {
 	out := RunResult{Requirements: reqs, Verdict: Pass}
 	for _, r := range reqs {
-		if r.Priority != "required" {
+		switch r.Priority {
+		case "recommended", "informational":
 			continue
-		}
-		if rank(r.Verdict) > rank(out.Verdict) {
-			out.Verdict = r.Verdict
+		case "required":
+			if rank(r.Verdict) > rank(out.Verdict) {
+				out.Verdict = r.Verdict
+			}
+		default:
+			out.Verdict = Error
 		}
 	}
 	if len(reqs) == 0 {

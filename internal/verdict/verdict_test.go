@@ -69,3 +69,12 @@ func TestManualAndMissing(t *testing.T) {
 		t.Fatal(v)
 	}
 }
+
+func TestInvalidPriorityCannotProducePassingRun(t *testing.T) {
+	run := verdict.AggregateRun([]verdict.RequirementResult{{
+		ID: "REQ-1", Priority: "requred", Verdict: verdict.Fail,
+	}})
+	if run.Verdict != verdict.Error {
+		t.Fatalf("invalid priority produced %q", run.Verdict)
+	}
+}

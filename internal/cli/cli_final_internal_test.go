@@ -71,6 +71,8 @@ i
 	if err := os.WriteFile(filepath.Join(root, ".intentci", "requirements", "REQ-001.md"), []byte(req), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	run("git", "add", ".intentci/requirements/REQ-001.md")
+	run("git", "commit", "-m", "failing requirement")
 	out.Reset()
 	errb.Reset()
 	code := RunMain([]string{"repair", "--dry-run", "--max-attempts", "1"}, &out, &errb)
@@ -93,6 +95,8 @@ requirements:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	run("git", "add", ".intentci")
+	run("git", "commit", "-m", "invalid requirement")
 	out.Reset()
 	errb.Reset()
 	if code := RunMain([]string{"repair", "--dry-run", "--max-attempts", "1"}, &out, &errb); code == exitcode.Pass {

@@ -23,4 +23,12 @@ func TestRedactEmptyAndProtectedAllow(t *testing.T) {
 	if security.IsTestPath("main.go") {
 		t.Fatal("not test")
 	}
+	boundary := security.BoundaryViolations(
+		[]string{"src/ok.go", "outside.go", "src/secret.go"},
+		[]string{"src/**"},
+		[]string{"src/secret.go"},
+	)
+	if len(boundary) != 2 {
+		t.Fatalf("boundary violations: %v", boundary)
+	}
 }

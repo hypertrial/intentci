@@ -54,6 +54,7 @@ func TestCLIFlagsAndErrorPaths(t *testing.T) {
 	if code := cli.RunMain([]string{"init", "--force"}, &out, &errb); code != 0 {
 		t.Fatal(code, errb.String())
 	}
+	gitInit(t, root)
 
 	out.Reset()
 	errb.Reset()

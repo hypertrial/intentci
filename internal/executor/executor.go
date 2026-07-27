@@ -2,12 +2,7 @@ package executor
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -36,6 +31,9 @@ type LeafResult map[string]provider.Result
 
 // Run executes all provider leaves for selected requirements.
 func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]LeafResult, []verdict.RequirementResult) {
+	// Successful-result caching remains disabled until the key includes complete
+	// repository, provider, input, and environment provenance.
+	opt.NoCache = true
 	if opt.Registry == nil {
 		opt.Registry = provider.DefaultRegistry()
 	}
@@ -49,10 +47,10 @@ func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]Le
 		spec  ir.ProviderSpec
 	}
 	type prepared struct {
-		req   ir.Requirement
-		obl   ir.Obligation
+		req    ir.Requirement
+		obl    ir.Obligation
 		verify ir.VerifyNode
-		jobs  []job
+		jobs   []job
 	}
 	var preparedObs []prepared
 	var jobs []job
@@ -84,17 +82,6 @@ func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]Le
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			cacheKey := cacheKey(opt.IRHash, j.spec, opt.ChangedFiles)
-			if !opt.NoCache {
-				if cached, ok := loadCache(opt.CacheDir, cacheKey); ok {
-					cached.FromCache = true
-					mu.Lock()
-					results[j.reqID+"/"+j.oblID+"/"+j.key] = cached
-					mu.Unlock()
-					return
-				}
-			}
-
 			p, ok := opt.Registry.Get(j.spec.Provider)
 			var res provider.Result
 			if !ok {
@@ -113,9 +100,6 @@ func Run(ctx context.Context, reqs []ir.Requirement, opt Options) (map[string]Le
 					RetainStdout: opt.Config.Evidence.RetainStdout,
 					RetainStderr: opt.Config.Evidence.RetainStderr,
 				})
-			}
-			if !opt.NoCache && res.Status == "completed" && allPassed(res) {
-				_ = saveCache(opt.CacheDir, cacheKey, res)
 			}
 			mu.Lock()
 			results[j.reqID+"/"+j.oblID+"/"+j.key] = res
@@ -223,64 +207,10 @@ func split3(s string) []string {
 	return nil
 }
 
-func cacheKey(irHash string, spec ir.ProviderSpec, changed []string) string {
-	b, _ := json.Marshal(struct {
-		IR      string
-		Spec    ir.ProviderSpec
-		Changed []string
-	}{irHash, spec, changed})
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func loadCache(dir, key string) (provider.Result, bool) {
-	if dir == "" {
-		return provider.Result{}, false
-	}
-	data, err := os.ReadFile(filepath.Join(dir, key+".json"))
-	if err != nil {
-		return provider.Result{}, false
-	}
-	var res provider.Result
-	if err := json.Unmarshal(data, &res); err != nil {
-		return provider.Result{}, false
-	}
-	return res, true
-}
-
-func saveCache(dir, key string, res provider.Result) error {
-	if dir == "" {
-		return nil
-	}
-	if err := mkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(res)
-	if err != nil {
-		return err
-	}
-	return writeFile(filepath.Join(dir, key+".json"), raw, 0o644)
-}
-
-func allPassed(res provider.Result) bool {
-	if res.Status != "completed" {
-		return false
-	}
-	for _, e := range res.Evidence {
-		if e.Passed == nil || !*e.Passed {
-			return false
-		}
-	}
-	return len(res.Evidence) > 0
-}
-
 func boolPtr(b bool) *bool { return &b }
 
 // mutateResults is an optional test hook applied after provider execution.
 var mutateResults func(map[string]provider.Result)
-
-var mkdirAll = os.MkdirAll
-var writeFile = os.WriteFile
 
 // Ensure timeout import used
 var _ = time.Second
