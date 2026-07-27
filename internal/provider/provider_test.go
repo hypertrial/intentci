@@ -21,6 +21,18 @@ func TestCommandAndBoundary(t *testing.T) {
 	if res.Status != "completed" || res.Evidence[0].Passed == nil || !*res.Evidence[0].Passed {
 		t.Fatalf("%+v", res)
 	}
+	threshold := 0.8
+	res = p.Execute(context.Background(), provider.Request{
+		Root: t.TempDir(),
+		Spec: ir.ProviderSpec{
+			Provider: "command", ID: "probabilistic", Run: "true",
+			EvidenceClass: "probabilistic",
+		},
+		ConfidenceThreshold: &threshold,
+	})
+	if res.Evidence[0].Confidence != nil {
+		t.Fatalf("command provider invented observed confidence: %+v", res)
+	}
 	b, _ := reg.Get("boundary")
 	res = b.Execute(context.Background(), provider.Request{
 		ChangedFiles: []string{"migrations/1.sql"},

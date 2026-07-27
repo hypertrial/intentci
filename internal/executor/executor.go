@@ -675,9 +675,6 @@ func enrichEvidence(result *provider.Result, request provider.Request, implement
 		if evidence.Class == "" {
 			evidence.Class = firstNonEmpty(request.Spec.EvidenceClass, request.EvidenceClass, "deterministic")
 		}
-		if evidence.Confidence == nil {
-			evidence.Confidence = request.ConfidenceThreshold
-		}
 		if evidence.Status == "" {
 			switch {
 			case result.Status == "error":

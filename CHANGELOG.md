@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.1 — 2026-07-27
+
+### Fixed
+
+- Probabilistic provider evidence that omits its observed confidence can no
+  longer inherit the obligation's minimum confidence threshold and pass.
+- The release validator now executes native Go fuzz targets for every
+  property-based invariant required by v1 §34.5.
+- Performance evidence now records peak resident memory for the no-op
+  `version` invocation as the v1 idle-memory proxy.
+
 ## 1.1.0 — 2026-07-27
 
 First release validated against the complete normative v1 contract.

@@ -40,7 +40,7 @@ no manually asserted pass state.
 | V1-S31 | §31 internal component and persistence boundaries | `go test ./...` |
 | V1-S32 | §32 internal Go interface behavior | `go test ./internal/provider ./internal/evidence ./internal/report` |
 | V1-S33 | §33 external provider v1 subprocess protocol | `go test ./internal/provider -run 'External'` |
-| V1-S34 | §34 unit, golden, integration, E2E, fuzz, mutation, race, and coverage strategy | `INTENTCI_RUN_MUTATION=1 ./scripts/validate_v1_release.sh` |
+| V1-S34 | §34 unit, golden, integration, E2E, fuzz, mutation, race, and coverage strategy | `./scripts/check_fuzz.sh`; `INTENTCI_RUN_MUTATION=1 ./scripts/validate_v1_release.sh` |
 | V1-S35 | §35 functional requirements | `go test ./tests/acceptance -run '^TestV1Acceptance$'` |
 | V1-S36 | §36 first-run and error-message UX | `go test ./internal/initcmd ./internal/cli` |
 | V1-S37 | §37 milestone exit criteria | staged green PR history plus `./scripts/validate_v1_release.sh` |

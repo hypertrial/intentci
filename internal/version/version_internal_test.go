@@ -10,7 +10,7 @@ func TestStringBranches(t *testing.T) {
 		t.Fatal(String())
 	}
 	Version = ""
-	if String() != "1.1.0" {
+	if String() != "1.1.1" {
 		t.Fatal(String())
 	}
 }

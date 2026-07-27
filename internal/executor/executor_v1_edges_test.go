@@ -252,8 +252,17 @@ func TestEvidenceOutputRedactionAndCacheHelpers(t *testing.T) {
 		}, implementation)
 		if result.Evidence[0].Status != testCase.want ||
 			result.Evidence[0].Class != "probabilistic" ||
-			result.Evidence[0].Confidence == nil {
+			result.Evidence[0].Confidence != nil {
 			t.Fatalf("%+v", result)
+		}
+		node := ir.VerifyNode{Provider: &ir.ProviderSpec{Provider: "static", ID: "id"}}
+		got, _, _ := verdict.EvaluateNodeWithPolicy(
+			node,
+			map[string]provider.Result{"id": result},
+			verdict.EvidencePolicy{Class: "probabilistic", ConfidenceThreshold: &threshold},
+		)
+		if got == verdict.Pass {
+			t.Fatalf("missing observed confidence must not pass: %+v", result)
 		}
 	}
 	resultWithVersion := provider.Result{
