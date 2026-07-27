@@ -1,21 +1,16 @@
-package version_test
+package version
 
-import (
-	"testing"
-
-	"github.com/hypertrial/intentci/internal/version"
-)
+import "testing"
 
 func TestString(t *testing.T) {
-	old := version.Version
-	defer func() { version.Version = old }()
-
-	version.Version = "1.1.1"
-	if version.String() != "1.1.1" {
-		t.Fatalf("got %q", version.String())
+	old := Version
+	defer func() { Version = old }()
+	Version = "test"
+	if String() != "test" {
+		t.Fatal(String())
 	}
-	version.Version = ""
-	if version.String() != "1.1.1" {
-		t.Fatalf("got %q", version.String())
+	Version = ""
+	if String() != "2.0.0" {
+		t.Fatal(String())
 	}
 }

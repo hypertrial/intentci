@@ -1,0 +1,10 @@
+version: 2
+
+checks:
+  - id: go-tests
+    intent: IntentCI changes must keep tests passing.
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    run: go test ./...

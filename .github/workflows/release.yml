@@ -3,16 +3,14 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - "v2.*"
 
 permissions:
   contents: write
 
 jobs:
-  macos-performance:
-    runs-on: macos-latest
-    permissions:
-      contents: read
+  publish:
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -21,110 +19,66 @@ jobs:
         with:
           go-version: "1.23.x"
           cache: true
-      - name: Record native macOS performance
-        run: ./scripts/record_performance.sh dist/release-evidence/performance-macos-arm64.txt
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: macos-performance
-          path: dist/release-evidence/performance-macos-arm64.txt
-
-  publish:
-    needs: macos-performance
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.25.x"
-          cache: true
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.13"
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: examples/typescript/package-lock.json
-      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: "21"
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - name: Install pinned mutation runner
+      - name: Validate
         run: |
-          go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Run complete release gates
-        env:
-          INTENTCI_RUN_MUTATION: "1"
-          RELEASE_TAG: ${{ github.ref_name }}
+          go test -race ./...
+          go vet ./...
+          go run ./cmd/intentci --all
+      - name: Build Apple Silicon archive
         run: |
-          INTENTCI_BUILD_VERSION="${RELEASE_TAG#v}" \
-            ./scripts/validate_v1_release.sh dist/release-evidence
-      - name: Collect platform performance records
-        run: mv dist/release-evidence/performance.txt dist/release-evidence/performance-linux-amd64.txt
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: macos-performance
-          path: dist/release-evidence
-      - name: Build deterministic release archives
-        run: ./scripts/package_release.sh "${GITHUB_REF_NAME#v}" dist/release
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: release-validation-evidence
-          path: dist/release-evidence/
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/stage dist/release
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath \
+              -ldflags="-s -w -X github.com/hypertrial/intentci/v2/internal/version.Version=$version" \
+              -o dist/stage/intentci ./cmd/intentci
+          tar -czf "dist/release/intentci_${version}_darwin_arm64.tar.gz" \
+            -C dist/stage intentci
+          cd dist/release
+          shasum -a 256 "intentci_${version}_darwin_arm64.tar.gz" > checksums.txt
       - name: Publish GitHub release
         uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           files: |
-            dist/release/*.tar.gz
+            dist/release/intentci_*.tar.gz
             dist/release/checksums.txt
-            dist/release-evidence/acceptance-v1.json
-            dist/release-evidence/performance-*.txt
-            dist/release-evidence/mutation/*.json
-          body_path: docs/releases/${{ github.ref_name }}.md
+          body_path: docs/releases/v2.0.0.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  validate-assets:
+  validate:
     needs: publish
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target_os: linux
-            target_arch: amd64
-          - os: macos-latest
-            target_os: darwin
-            target_arch: arm64
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Download published assets
+      - name: Download and validate release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --dir downloaded
-      - name: Verify all checksums
         run: |
+          gh release download "$GITHUB_REF_NAME" --dir downloaded
           cd downloaded
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum -c checksums.txt
-          else
-            shasum -a 256 -c checksums.txt
-          fi
-      - name: Run native packaged binary
-        run: |
-          archive="downloaded/intentci_${GITHUB_REF_NAME#v}_${{ matrix.target_os }}_${{ matrix.target_arch }}.tar.gz"
+          shasum -a 256 -c checksums.txt
+          archive="intentci_${GITHUB_REF_NAME#v}_darwin_arm64.tar.gz"
+          test "$(tar -tzf "$archive")" = "intentci"
           mkdir unpacked
           tar -xzf "$archive" -C unpacked
           test "$(unpacked/intentci version)" = "${GITHUB_REF_NAME#v}"
-      - name: Packaged smoke workflow
+      - name: Packaged binary smoke test
         run: |
+          binary="$GITHUB_WORKSPACE/downloaded/unpacked/intentci"
           fixture="$(mktemp -d)"
           cd "$fixture"
-          "$GITHUB_WORKSPACE/unpacked/intentci" init
-          "$GITHUB_WORKSPACE/unpacked/intentci" compile --strict
-          "$GITHUB_WORKSPACE/unpacked/intentci" verify --all --no-git --no-cache
+          git init -q
+          git config user.email intentci@example.com
+          git config user.name IntentCI
+          printf 'module example\n\ngo 1.23\n' > go.mod
+          printf 'package example\n' > example.go
+          "$binary" init
+          git add .
+          git commit -qm initial
+          printf '\nconst Changed = true\n' >> example.go
+          mkdir nested
+          cd nested
+          "$binary"
+          cd ..
+          "$binary" --all

@@ -1,10 +1,10 @@
 # Go example
 
-This tracked project proves a real Go test command through an IntentCI
-requirement.
+This small repository demonstrates the complete IntentCI v2 configuration:
 
 ```bash
-go test ./...
-intentci compile --strict
-intentci verify --all --no-git
+intentci
+intentci --all
 ```
+
+Changing `calculator.go` or `calculator_test.go` selects the `go-tests` check.

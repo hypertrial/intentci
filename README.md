@@ -1,164 +1,108 @@
 # IntentCI
 
-**Intent compiler and evidence-based verification for agent-generated code.**
-
-IntentCI connects human intent to machine-verifiable evidence:
+IntentCI runs the checks that matter for your current local changes.
 
 ```text
-Requirement → Obligation → Verifier → Evidence → Verdict → Repair
+changed files → matching checks → zsh commands → pass/fail
 ```
 
-It organizes existing tests and checks around Markdown requirements and reports obligation-level evidence before you push.
-
-```text
-FAIL REQ-AUTH-001
-  PASS OBL-001
-  FAIL OBL-002
-  PASS OBL-003
-```
-
-## Status
-
-**v1.1.1** is the current release validated against the complete normative
-[`v1.md`](v1.md), including the executable
-[§38 acceptance matrix](docs/acceptance-v1.md). It supersedes v1.1.0 by
-correcting missing-confidence handling for probabilistic evidence. Earlier
-releases remain available as immutable historical tags.
-
-Breaking change from v0.x Product Contracts: [docs/migration-v0-to-v1.md](docs/migration-v0-to-v1.md).
-Existing v1.0.x users: [v1.0.x → v1.1 migration](docs/migration-v1.0-to-v1.1.md).
+Version 2 is intentionally small and incompatible with v1. The complete v1
+implementation remains available from the immutable
+[`v1.1.1`](https://github.com/hypertrial/intentci/releases/tag/v1.1.1)
+release.
 
 ## Install
 
-### From release binaries
+IntentCI v2 supports Apple Silicon Macs.
+Source builds on other platforms are incidental and unsupported.
 
-Download the binary from [GitHub Releases](https://github.com/hypertrial/intentci/releases), make it executable, and place it on your `PATH`.
+Download `intentci_2.0.0_darwin_arm64.tar.gz` from
+[GitHub Releases](https://github.com/hypertrial/intentci/releases), or install
+from source with Go 1.23 or newer:
 
 ```bash
-chmod +x intentci
-sudo mv intentci /usr/local/bin/
-intentci version
+go install github.com/hypertrial/intentci/v2/cmd/intentci@v2.0.0
 ```
 
-### From source
+## Start
 
-Requires Go 1.23+.
-
-```bash
-go install github.com/hypertrial/intentci/cmd/intentci@v1.1.1
-```
-
-For development:
+From any directory inside a Git repository:
 
 ```bash
-git clone https://github.com/hypertrial/intentci.git
-cd intentci
-go install ./cmd/intentci
-```
-
-## Quickstart
-
-```bash
-cd your-repo
 intentci init
-# edit .intentci/requirements/*.md
-intentci compile --strict
-intentci verify --changed
-intentci explain REQ-001 --show-evidence
 ```
 
-Repair with an external agent command:
+`init` detects a root-level Go, Node, Python, Rust, Maven, or Gradle project and
+creates `.intentci.yaml`. Edit it whenever the generated command or paths are
+not the right ones for your repository.
+
+```yaml
+version: 2
+
+checks:
+  - id: go-tests
+    intent: Go changes must keep tests passing.
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    run: go test ./...
+```
+
+Then use one command during normal development:
 
 ```bash
-intentci repair \
-  --agent-command './scripts/run-agent.sh {packet}' \
-  --max-attempts 3
+intentci
 ```
 
-## CLI
+IntentCI finds staged, unstaged, deleted, renamed, and untracked non-ignored
+files relative to `HEAD`. It runs matching checks in YAML order and stops at
+the first failure. A change to `.intentci.yaml` runs every check.
 
-| Command | Purpose |
-| --- | --- |
-| `intentci init` | Create `.intentci/config.yaml` + example requirement |
-| `intentci compile` | Compile Markdown → canonical Intent IR |
-| `intentci verify` | Select, execute providers, emit verdicts |
-| `intentci explain <id>` | Explain a requirement from the latest run |
-| `intentci repair` | Bounded agent repair loop |
-| `intentci status` | Repository status from latest run |
-| `intentci doctor` | Local dependency / config checks |
-| `intentci schema <name>` | Print JSON schemas |
-| `intentci version` | Print version |
+Run everything explicitly with:
 
-### Verify flags
+```bash
+intentci --all
+```
+
+## Configuration
+
+Every field is required:
+
+- `version` must be `2`.
+- `checks` must contain at least one check.
+- `id` must be unique and match `[a-z0-9][a-z0-9-]*`.
+- `intent` explains why the check exists.
+- `paths` contains repository-relative
+  [doublestar](https://github.com/bmatcuk/doublestar) globs. Use `**` for every
+  changed file.
+- `run` is a command passed to `/bin/zsh -lc`; YAML multiline strings work.
+
+Unknown fields, absolute or traversing paths, backslashes, malformed globs, and
+empty values are errors. There are no includes, overlays, retries, providers,
+reports, caches, or environment overrides.
+
+## Commands
 
 ```text
---all                     Verify all active requirements
---changed                 Verify requirements affected by the Git diff (default; empty diff verifies nothing)
---requirement <id>        Single requirement
---obligation <id>         Single obligation
---provider <id>           Single verifier id
---base <ref>              Comparison base
---head <ref>              Comparison head
---max-parallel <n>        Override bounded concurrency
---fail-fast               Stop scheduling new work after a non-pass
---no-git                  Allow all/explicit verification without Git provenance
---format text|json|junit  Output format
---output <path>           Write report to a file
---no-cache                Disable successful-provider cache
+intentci             Run checks matching working-tree changes
+intentci --all       Run every check
+intentci init        Create .intentci.yaml without overwriting
+intentci version     Print the version
+intentci --help      Print usage
 ```
 
-Invalid formats and empty selectors use exit `8`.
+Exit codes are `0` for success or no matching work, `1` for a failed check, `2`
+for usage/configuration/Git/launch errors, `130` for `SIGINT`, and `143` for
+`SIGTERM`.
 
-### Repair agents
+## Trust
 
-`--agent NAME` resolves `intentci-agent-NAME` on `PATH`. It is mutually
-exclusive with `--agent-command`. `{packet}`, `{repository}`, and `{attempt}`
-placeholders are expanded for command adapters.
+IntentCI is not a sandbox. Commands run from the repository root with your full
+environment and user permissions. Only run checks from repositories you trust.
+No results are persisted and IntentCI does not access the network itself.
 
-`repair.max_attempts` is the total number of immutable verification attempts,
-including the initial failed state. No agent runs after the last permitted
-verification. IntentCI v1 executes agents on the host and is not a sandbox.
-
-## Exit codes
-
-| Code | Meaning |
-| --- | --- |
-| `0` | Passed |
-| `1` | Requirement failed |
-| `2` | Unproven |
-| `3` | Uncertain |
-| `4` | Review required |
-| `5` | Compile failed |
-| `6` | Verifier execution error |
-| `7` | Internal error |
-| `8` | Invalid CLI usage |
-| `9` | Repair attempts exhausted |
-| `10` | Security / boundary violation |
-
-Agents should consume JSON (`--format json`) rather than parsing terminal text.
-
-## Evidence
-
-Each run under `.intentci/runs/<run-id>/` contains canonical IR, the selected
-plan, initial and per-attempt repository state/diffs, evidence, verdicts, logs,
-artifacts, terminal/JSON/JUnit reports, a manifest, and a final verdict that
-records the manifest hash. Attempts and finalized runs are immutable.
-
-See the [configuration reference](docs/configuration.md),
-[provider protocol](docs/provider-protocol-v1.md), and
-[security model](docs/SECURITY.md). The
-[normative conformance index](docs/v1-conformance.md) maps every v1 section to
-its executable release control.
-
-## Privacy
-
-Telemetry is off by default (`telemetry.enabled: false`). IntentCI executes
-repository-defined providers and repair agents locally with a minimal
-environment plus explicit allowlists. HTTP is only used by tools you configure.
-
-## Platform support
-
-macOS amd64/arm64 and Linux amd64. Windows via WSL.
+See [migration guidance](docs/migration-v1-to-v2.md) when moving from v1.
 
 ## License
 
