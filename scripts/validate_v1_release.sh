@@ -16,6 +16,7 @@ cd "$REPOSITORY_ROOT"
 go vet ./...
 go test -race ./...
 ./scripts/check-coverage.sh
+./scripts/check_fuzz.sh
 ./scripts/check_schemas.sh
 ./scripts/check_examples.sh
 INTENTCI_ACCEPTANCE_OUTPUT="$OUTPUT_DIRECTORY/acceptance-v1.json" \

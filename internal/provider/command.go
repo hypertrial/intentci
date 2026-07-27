@@ -122,9 +122,9 @@ func (p *CommandProvider) Execute(ctx context.Context, req Request) Result {
 		}
 	}
 	res.Evidence = []Evidence{{
-		ID:         firstNonEmpty(req.Spec.ID, "command"),
-		Class:      firstNonEmpty(req.Spec.EvidenceClass, req.EvidenceClass, "deterministic"),
-		Confidence: req.ConfidenceThreshold, Summary: summary, Passed: boolPtr(passed),
+		ID:      firstNonEmpty(req.Spec.ID, "command"),
+		Class:   firstNonEmpty(req.Spec.EvidenceClass, req.EvidenceClass, "deterministic"),
+		Summary: summary, Passed: boolPtr(passed),
 		Data:      map[string]any{"exit_code": code, "run": req.Spec.Run},
 		StartedAt: process.StartedAt, CompletedAt: process.EndedAt,
 	}}
