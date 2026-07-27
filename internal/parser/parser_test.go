@@ -106,3 +106,27 @@ func TestParseFileAndErrors(t *testing.T) {
 		t.Fatal("expected invalid id / missing obligations")
 	}
 }
+
+func TestRejectsInvalidStatusAndPriority(t *testing.T) {
+	bad := `---
+id: REQ-001
+title: typo
+status: activ
+priority: requred
+---
+# Intent
+x
+# Obligations
+` + "```yaml" + `
+- id: OBL-001
+  statement: x
+  required: true
+  verify:
+    provider: command
+    run: "true"
+` + "```"
+	_, diags := parser.Parse("bad.md", []byte(bad))
+	if len(diags) != 2 {
+		t.Fatalf("got diagnostics %v", diags)
+	}
+}

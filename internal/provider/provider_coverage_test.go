@@ -171,7 +171,11 @@ func TestJSONErrorsAndLookup(t *testing.T) {
 func TestJUnitBranches(t *testing.T) {
 	p := &provider.JUnitProvider{}
 	root := t.TempDir()
-	res := p.Execute(context.Background(), provider.Request{
+	res := p.Execute(context.Background(), provider.Request{Root: root})
+	if res.Status != "error" {
+		t.Fatalf("empty report should error: %+v", res)
+	}
+	res = p.Execute(context.Background(), provider.Request{
 		Root: root, Spec: ir.ProviderSpec{Run: "true"},
 	})
 	if res.Status != "error" {
@@ -201,7 +205,7 @@ func TestJUnitBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = p.Execute(context.Background(), provider.Request{
-		Root: root, Spec: ir.ProviderSpec{ID: "j", Report: "bad.xml", Run: "true"}, RetainStdout: true,
+		Root: root, Spec: ir.ProviderSpec{ID: "j", Report: "bad.xml"}, RetainStdout: true,
 	})
 	if res.Evidence[0].Passed == nil || *res.Evidence[0].Passed {
 		t.Fatalf("%+v", res)
@@ -230,12 +234,54 @@ func TestJUnitBranches(t *testing.T) {
 	if res.Status != "error" {
 		t.Fatalf("%+v", res)
 	}
+
+	// A fresh passing report cannot override a nonzero generator exit.
+	res = (&provider.JUnitProvider{}).Execute(context.Background(), provider.Request{
+		Root: root,
+		Spec: ir.ProviderSpec{
+			ID: "fresh", Report: "fresh.xml",
+			Run: `printf '<testsuite tests="1" failures="0"/>' > fresh.xml; exit 1`,
+		},
+		RetainStdout: true,
+	})
+	if res.Status != "error" {
+		t.Fatalf("%+v", res)
+	}
+
+	// A fresh failing report remains a failure even when the generator exits nonzero.
+	res = (&provider.JUnitProvider{}).Execute(context.Background(), provider.Request{
+		Root: root,
+		Spec: ir.ProviderSpec{
+			ID: "fresh-fail", Report: "fresh-fail.xml",
+			Run: `printf '<testsuite tests="1" failures="1"/>' > fresh-fail.xml; exit 1`,
+		},
+	})
+	if res.Status != "completed" || *res.Evidence[0].Passed {
+		t.Fatalf("%+v", res)
+	}
+
+	if err := os.Mkdir(filepath.Join(root, "report-dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "report-dir", "child"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res = (&provider.JUnitProvider{}).Execute(context.Background(), provider.Request{
+		Root: root, Spec: ir.ProviderSpec{Run: "true", Report: "report-dir"},
+	})
+	if res.Status != "error" {
+		t.Fatalf("%+v", res)
+	}
 }
 
 func TestSARIFBranches(t *testing.T) {
 	p := &provider.SARIFProvider{}
 	root := t.TempDir()
-	res := p.Execute(context.Background(), provider.Request{
+	res := p.Execute(context.Background(), provider.Request{Root: root})
+	if res.Status != "error" {
+		t.Fatalf("empty report should error: %+v", res)
+	}
+	res = p.Execute(context.Background(), provider.Request{
 		Root: root, Spec: ir.ProviderSpec{Run: "true"}, RetainStdout: true,
 	})
 	if res.Status != "error" {
@@ -261,9 +307,56 @@ func TestSARIFBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = p.Execute(context.Background(), provider.Request{
-		Root: root, Spec: ir.ProviderSpec{ID: "s", Report: path, Run: "true"}, RetainStdout: true,
+		Root: root, Spec: ir.ProviderSpec{ID: "s", Report: path}, RetainStdout: true,
 	})
 	if *res.Evidence[0].Passed {
 		t.Fatal("expected findings fail")
+	}
+
+	res = (&provider.SARIFProvider{}).Execute(context.Background(), provider.Request{
+		Root: root,
+		Spec: ir.ProviderSpec{
+			ID: "fresh", Report: "fresh.sarif",
+			Run: `printf '{"runs":[{"results":[]}]}' > fresh.sarif; exit 1`,
+		},
+		RetainStdout: true,
+	})
+	if res.Status != "error" {
+		t.Fatalf("%+v", res)
+	}
+
+	res = (&provider.SARIFProvider{}).Execute(context.Background(), provider.Request{
+		Root: root,
+		Spec: ir.ProviderSpec{
+			ID: "fresh-fail", Report: "fresh-fail.sarif",
+			Run: `printf '{"runs":[{"results":[{}]}]}' > fresh-fail.sarif; exit 1`,
+		},
+	})
+	if res.Status != "completed" || *res.Evidence[0].Passed {
+		t.Fatalf("%+v", res)
+	}
+
+	if err := os.Mkdir(filepath.Join(root, "sarif-dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sarif-dir", "child"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res = (&provider.SARIFProvider{}).Execute(context.Background(), provider.Request{
+		Root: root, Spec: ir.ProviderSpec{Run: "true", Report: "sarif-dir"},
+	})
+	if res.Status != "error" {
+		t.Fatalf("%+v", res)
+	}
+
+	p.Exec = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "sleep 2")
+	}
+	res = p.Execute(context.Background(), provider.Request{
+		Root: root, Timeout: 5 * time.Millisecond,
+		Spec: ir.ProviderSpec{ID: "timeout", Run: "sleep", Report: "timeout.sarif"},
+	})
+	if res.Status != "error" {
+		t.Fatalf("%+v", res)
 	}
 }

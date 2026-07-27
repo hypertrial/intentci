@@ -2,6 +2,8 @@ package executor_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hypertrial/intentci/internal/config"
@@ -63,5 +65,36 @@ func TestDuplicateAnonymousCommandLeavesDoNotFalsePass(t *testing.T) {
 		if len(results) != 1 || results[0].Verdict != verdict.Fail {
 			t.Fatalf("iter %d: %+v", i, results)
 		}
+	}
+}
+
+func TestCacheDoesNotReuseSamePathAfterContentChanges(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "check.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	reqs := []ir.Requirement{{
+		ID: "REQ-1", Status: "active", Priority: "required",
+		Obligations: []ir.Obligation{{
+			ID: "OBL-1", Required: true,
+			Verify: ir.VerifyNode{Provider: &ir.ProviderSpec{Provider: "command", ID: "check", Run: "./check.sh"}},
+		}},
+	}}
+	opt := executor.Options{
+		Root: root, Config: cfg, Registry: provider.DefaultRegistry(), RunID: "run",
+		IRHash: "same", ChangedFiles: []string{"check.sh"}, CacheDir: filepath.Join(root, "cache"),
+	}
+	_, first := executor.Run(context.Background(), reqs, opt)
+	if first[0].Verdict != verdict.Pass {
+		t.Fatal(first)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, second := executor.Run(context.Background(), reqs, opt)
+	if second[0].Verdict != verdict.Fail {
+		t.Fatalf("stale cache produced %s", second[0].Verdict)
 	}
 }

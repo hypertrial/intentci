@@ -30,7 +30,24 @@ func (p *SARIFProvider) Validate(spec ir.ProviderSpec) []Diagnostic {
 func (p *SARIFProvider) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	res := Result{Provider: p.Name(), ProviderVersion: p.Version(), Status: "completed"}
+	report := req.Spec.Report
+	if report != "" && !filepath.IsAbs(report) {
+		report = filepath.Join(req.Root, report)
+	}
+	var commandErr error
 	if req.Spec.Run != "" {
+		if report == "" {
+			res.Status = "error"
+			res.Diagnostics = []string{"report path required after run"}
+			res.DurationMS = time.Since(start).Milliseconds()
+			return res
+		}
+		if err := os.Remove(report); err != nil && !os.IsNotExist(err) {
+			res.Status = "error"
+			res.Diagnostics = []string{"remove stale sarif report: " + err.Error()}
+			res.DurationMS = time.Since(start).Milliseconds()
+			return res
+		}
 		run := p.Exec
 		if run == nil {
 			run = exec.CommandContext
@@ -43,20 +60,24 @@ func (p *SARIFProvider) Execute(ctx context.Context, req Request) Result {
 		defer cancel()
 		cmd := run(cctx, "sh", "-c", req.Spec.Run)
 		cmd.Dir = req.Root
-		out, _ := cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
+		commandErr = err
 		if req.RetainStdout {
 			res.Stdout = string(out)
 		}
+		if cctx.Err() == context.DeadlineExceeded {
+			res.Status = "error"
+			res.Diagnostics = []string{"sarif command timed out"}
+			res.DurationMS = time.Since(start).Milliseconds()
+			res.Evidence = []Evidence{{ID: req.Spec.ID, Class: "deterministic", Summary: "timed out", Passed: boolPtr(false)}}
+			return res
+		}
 	}
-	report := req.Spec.Report
 	if report == "" {
 		res.Status = "error"
 		res.Diagnostics = []string{"report path required"}
 		res.DurationMS = time.Since(start).Milliseconds()
 		return res
-	}
-	if !filepath.IsAbs(report) {
-		report = filepath.Join(req.Root, report)
 	}
 	data, err := os.ReadFile(report)
 	if err != nil {
@@ -74,6 +95,16 @@ func (p *SARIFProvider) Execute(ctx context.Context, req Request) Result {
 		return res
 	}
 	passed := findings == 0
+	if passed && commandErr != nil {
+		res.Status = "error"
+		res.Diagnostics = []string{"sarif generator failed: " + commandErr.Error()}
+		res.DurationMS = time.Since(start).Milliseconds()
+		res.Evidence = []Evidence{{
+			ID: firstNonEmpty(req.Spec.ID, "sarif"), Class: "deterministic",
+			Summary: "generator failed despite passing report", Passed: boolPtr(false),
+		}}
+		return res
+	}
 	res.Evidence = []Evidence{{
 		ID: firstNonEmpty(req.Spec.ID, "sarif"), Class: "deterministic",
 		Summary: fmt.Sprintf("sarif: %d findings", findings), Passed: boolPtr(passed),

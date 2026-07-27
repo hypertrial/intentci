@@ -1,6 +1,7 @@
 package compiler_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -105,5 +106,29 @@ x
 	res, err := compiler.Compile(compiler.Options{Root: root, Strict: true})
 	if err == nil {
 		t.Fatalf("expected error, diags=%v", res.Diagnostics)
+	}
+}
+
+func TestCompileIsDeterministic(t *testing.T) {
+	root := writeRepo(t, 1)
+	var want []byte
+	for i := 0; i < 25; i++ {
+		res, err := compiler.Compile(compiler.Options{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := filepath.Join(t.TempDir(), "ir.json")
+		if err := compiler.WriteIR(res.Document, out); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			want = got
+		} else if !bytes.Equal(got, want) {
+			t.Fatalf("compile %d was nondeterministic", i)
+		}
 	}
 }

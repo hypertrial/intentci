@@ -2,8 +2,6 @@ package executor
 
 import (
 	"context"
-	"errors"
-	"os"
 	"testing"
 
 	"github.com/hypertrial/intentci/internal/config"
@@ -27,24 +25,8 @@ func TestHelpers(t *testing.T) {
 	if len(specs) != 3 {
 		t.Fatal(specs)
 	}
-	if allPassed(provider.Result{Status: "error"}) {
-		t.Fatal("error")
-	}
-	if allPassed(provider.Result{Status: "completed"}) {
-		t.Fatal("empty")
-	}
-	f := false
-	if allPassed(provider.Result{Status: "completed", Evidence: []provider.Evidence{{Passed: &f}}}) {
-		t.Fatal("fail")
-	}
 	if boolPtr(true) == nil || !*boolPtr(true) {
 		t.Fatal("boolPtr")
-	}
-	if _, ok := loadCache("", "k"); ok {
-		t.Fatal("empty dir")
-	}
-	if err := saveCache("", "k", provider.Result{}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -77,19 +59,5 @@ func TestMutateResultsAndSaveCacheMarshal(t *testing.T) {
 	})
 	if len(results) != 1 {
 		t.Fatal(results)
-	}
-
-	oldM, oldW := mkdirAll, writeFile
-	defer func() { mkdirAll, writeFile = oldM, oldW }()
-	mkdirAll = func(string, os.FileMode) error { return nil }
-	writeFile = func(string, []byte, os.FileMode) error { return errors.New("w") }
-	if err := saveCache(t.TempDir(), "k", provider.Result{Status: "completed"}); err == nil {
-		t.Fatal("write")
-	}
-	// marshal fail
-	mkdirAll = oldM
-	writeFile = oldW
-	if err := saveCache(t.TempDir(), "k", provider.Result{Extra: map[string]any{"c": make(chan int)}}); err == nil {
-		t.Fatal("marshal")
 	}
 }

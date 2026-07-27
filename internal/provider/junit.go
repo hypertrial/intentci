@@ -28,24 +28,24 @@ func (p *JUnitProvider) Validate(spec ir.ProviderSpec) []Diagnostic {
 }
 
 type junitTestSuites struct {
-	XMLName xml.Name        `xml:"testsuites"`
+	XMLName xml.Name         `xml:"testsuites"`
 	Suites  []junitTestSuite `xml:"testsuite"`
 }
 
 type junitTestSuite struct {
-	XMLName  xml.Name       `xml:"testsuite"`
-	Name     string         `xml:"name,attr"`
-	Tests    int            `xml:"tests,attr"`
-	Failures int            `xml:"failures,attr"`
-	Errors   int            `xml:"errors,attr"`
+	XMLName  xml.Name        `xml:"testsuite"`
+	Name     string          `xml:"name,attr"`
+	Tests    int             `xml:"tests,attr"`
+	Failures int             `xml:"failures,attr"`
+	Errors   int             `xml:"errors,attr"`
 	Cases    []junitTestCase `xml:"testcase"`
 }
 
 type junitTestCase struct {
-	Name      string      `xml:"name,attr"`
-	Classname string      `xml:"classname,attr"`
-	Failure   *junitFail  `xml:"failure"`
-	Error     *junitFail  `xml:"error"`
+	Name      string     `xml:"name,attr"`
+	Classname string     `xml:"classname,attr"`
+	Failure   *junitFail `xml:"failure"`
+	Error     *junitFail `xml:"error"`
 }
 
 type junitFail struct {
@@ -56,7 +56,24 @@ type junitFail struct {
 func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	res := Result{Provider: p.Name(), ProviderVersion: p.Version(), Status: "completed"}
+	report := req.Spec.Report
+	if report != "" && !filepath.IsAbs(report) {
+		report = filepath.Join(req.Root, report)
+	}
+	var commandErr error
 	if req.Spec.Run != "" {
+		if report == "" {
+			res.Status = "error"
+			res.Diagnostics = []string{"report path required after run"}
+			res.DurationMS = time.Since(start).Milliseconds()
+			return res
+		}
+		if err := os.Remove(report); err != nil && !os.IsNotExist(err) {
+			res.Status = "error"
+			res.Diagnostics = []string{"remove stale junit report: " + err.Error()}
+			res.DurationMS = time.Since(start).Milliseconds()
+			return res
+		}
 		run := p.Exec
 		if run == nil {
 			run = exec.CommandContext
@@ -70,6 +87,7 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 		cmd := run(cctx, "sh", "-c", req.Spec.Run)
 		cmd.Dir = req.Root
 		out, err := cmd.CombinedOutput()
+		commandErr = err
 		if req.RetainStdout {
 			res.Stdout = string(out)
 		}
@@ -81,15 +99,11 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 			return res
 		}
 	}
-	report := req.Spec.Report
 	if report == "" {
 		res.Status = "error"
 		res.Diagnostics = []string{"report path required after run"}
 		res.DurationMS = time.Since(start).Milliseconds()
 		return res
-	}
-	if !filepath.IsAbs(report) {
-		report = filepath.Join(req.Root, report)
 	}
 	data, err := os.ReadFile(report)
 	if err != nil {
@@ -107,6 +121,16 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 		return res
 	}
 	passed := failures == 0
+	if passed && commandErr != nil {
+		res.Status = "error"
+		res.Diagnostics = []string{"junit generator failed: " + commandErr.Error()}
+		res.DurationMS = time.Since(start).Milliseconds()
+		res.Evidence = []Evidence{{
+			ID: firstNonEmpty(req.Spec.ID, "junit"), Class: "deterministic",
+			Summary: "generator failed despite passing report", Passed: boolPtr(false),
+		}}
+		return res
+	}
 	summary := fmt.Sprintf("junit: %d tests, %d failures", total, failures)
 	res.Evidence = []Evidence{{
 		ID: firstNonEmpty(req.Spec.ID, "junit"), Class: "deterministic",

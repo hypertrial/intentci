@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -63,14 +64,14 @@ func Parse(path string, data []byte) (ir.Requirement, []Diagnostic) {
 	}
 
 	req := ir.Requirement{
-		ID:        meta.ID,
-		Title:     meta.Title,
-		Status:    meta.Status,
-		Priority:  meta.Priority,
-		Owners:    meta.Owners,
-		DependsOn: meta.DependsOn,
-		AppliesTo: ir.AppliesTo{Paths: meta.AppliesTo.Paths, Symbols: meta.AppliesTo.Symbols},
-		Tags:      meta.Tags,
+		ID:         meta.ID,
+		Title:      meta.Title,
+		Status:     meta.Status,
+		Priority:   meta.Priority,
+		Owners:     meta.Owners,
+		DependsOn:  meta.DependsOn,
+		AppliesTo:  ir.AppliesTo{Paths: meta.AppliesTo.Paths, Symbols: meta.AppliesTo.Symbols},
+		Tags:       meta.Tags,
 		SourcePath: filepath.ToSlash(path),
 	}
 
@@ -84,9 +85,13 @@ func Parse(path string, data []byte) (ir.Requirement, []Diagnostic) {
 	}
 	if req.Status == "" {
 		diags = append(diags, Diagnostic{Path: path, Message: "missing status"})
+	} else if !oneOf(req.Status, "draft", "active", "deprecated", "superseded", "disabled") {
+		diags = append(diags, Diagnostic{Path: path, Message: "invalid status " + fmt.Sprintf("%q", req.Status)})
 	}
 	if req.Priority == "" {
 		diags = append(diags, Diagnostic{Path: path, Message: "missing priority"})
+	} else if !oneOf(req.Priority, "required", "recommended", "informational") {
+		diags = append(diags, Diagnostic{Path: path, Message: "invalid priority " + fmt.Sprintf("%q", req.Priority)})
 	}
 
 	sections := splitSections(body)
@@ -180,7 +185,13 @@ func parseConstraints(path, raw string) ([]ir.Constraint, []Diagnostic) {
 	var out []ir.Constraint
 	// Expect ## Must / ## Must Not subsections with YAML lists
 	parts := splitH2(raw)
-	for kind, body := range parts {
+	kinds := make([]string, 0, len(parts))
+	for kind := range parts {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		body := parts[kind]
 		var items []struct {
 			ID        string `yaml:"id"`
 			Statement string `yaml:"statement"`
@@ -203,6 +214,15 @@ func parseConstraints(path, raw string) ([]ir.Constraint, []Diagnostic) {
 		}
 	}
 	return out, diags
+}
+
+func oneOf(got string, values ...string) bool {
+	for _, value := range values {
+		if got == value {
+			return true
+		}
+	}
+	return false
 }
 
 func splitH2(raw string) map[string]string {

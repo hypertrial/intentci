@@ -108,7 +108,7 @@ func TestAggregateAndExitCodes(t *testing.T) {
 		t.Fatal(run.Verdict)
 	}
 	run = verdict.AggregateRun([]verdict.RequirementResult{
-		{Priority: "optional", Verdict: verdict.Fail},
+		{Priority: "recommended", Verdict: verdict.Fail},
 		{Priority: "required", Verdict: verdict.Error},
 	})
 	if run.Verdict != verdict.Error {

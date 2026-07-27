@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hypertrial/intentci/internal/ir"
 	"github.com/hypertrial/intentci/internal/provider"
@@ -71,5 +72,37 @@ func TestJUnitSARIFJSONManual(t *testing.T) {
 	})
 	if *res.Evidence[0].Passed {
 		t.Fatal("expected fail")
+	}
+}
+
+func TestGeneratedReportsCannotReuseStalePass(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name     string
+		provider string
+		report   string
+		content  string
+	}{
+		{name: "junit", provider: "junit", report: "out.xml", content: `<testsuite tests="1" failures="0"/>`},
+		{name: "sarif", provider: "sarif", report: "out.sarif", content: `{"runs":[{"results":[]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, tc.report)
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			old := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(path, old, old); err != nil {
+				t.Fatal(err)
+			}
+			p, _ := provider.DefaultRegistry().Get(tc.provider)
+			res := p.Execute(context.Background(), provider.Request{
+				Root: root,
+				Spec: ir.ProviderSpec{Provider: tc.provider, Run: "false", Report: tc.report},
+			})
+			if res.Status != "error" {
+				t.Fatalf("stale passing report produced %q: %+v", res.Status, res)
+			}
+		})
 	}
 }
