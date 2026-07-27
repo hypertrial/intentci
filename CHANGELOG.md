@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2 — 2026-07-27
+
+### Fixed
+
+- The release asset-validation job now installs Go before running the generated
+  Go smoke check, completing end-to-end publication validation.
+
 ## 2.0.1 — 2026-07-27
 
 ### Fixed
@@ -7,6 +14,9 @@
 - Login `zsh` now retains paths inherited from the invoking process, so checks
   can find tools installed by GitHub Actions, package managers, and parent
   shells even when a login profile rewrites `PATH`.
+
+The archive passed checksum, contents, and version checks, but the separate
+smoke job omitted Go itself. Use the fully validated v2.0.2 release.
 
 ## 2.0.0 — 2026-07-27
 

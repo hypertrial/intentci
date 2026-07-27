@@ -146,7 +146,7 @@ func TestCLIHelpVersionAndUsage(t *testing.T) {
 		t.Fatalf("help = %d, %q", code, out)
 	}
 	code, out, _ = runFrom(t, context.Background(), t.TempDir(), "version")
-	if code != 0 || strings.TrimSpace(out) != "2.0.1" {
+	if code != 0 || strings.TrimSpace(out) != "2.0.2" {
 		t.Fatalf("version = %d, %q", code, out)
 	}
 	root := gitRepo(t)
