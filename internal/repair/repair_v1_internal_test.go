@@ -79,7 +79,7 @@ func TestBuildPacketEvidenceIntentAndFiltering(t *testing.T) {
 	packet := BuildPacket(bundle, 1, 2, "")
 	if len(packet.Failures) != 2 || len(packet.Failures[0].EvidenceIDs) != 2 ||
 		packet.Failures[0].EvidenceIDs[0] != "a" || packet.Failures[0].Paths[0] != "a" ||
-		!strings.Contains(packet.Intent, "\n\n") || len(packet.AllowedPaths) != 3 {
+		packet.Intent != "REQ: first\n\nREQ-2: second" || len(packet.AllowedPaths) != 3 {
 		t.Fatalf("%+v", packet)
 	}
 }
@@ -325,6 +325,28 @@ func TestCapturePatchFailuresAndUntrackedContent(t *testing.T) {
 	raw, err := capturePatch(root, filepath.Join(root, "store"))
 	if err != nil || !strings.Contains(string(raw), "intentci-untracked plain") ||
 		!strings.HasSuffix(string(raw), "\n") {
+		t.Fatalf("%q %v", raw, err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "store", "hidden"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "empty"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls = 0
+	gitOutput = func(string, ...string) ([]byte, error) {
+		calls++
+		if calls%2 == 0 {
+			return []byte("store/hidden\nempty\nplain\n"), nil
+		}
+		return nil, nil
+	}
+	raw, err = capturePatch(root, filepath.Join(root, "store"))
+	if err != nil || strings.Contains(string(raw), "store/hidden") ||
+		!strings.Contains(string(raw), "intentci-untracked empty") {
 		t.Fatalf("%q %v", raw, err)
 	}
 	if hashBytes([]byte("x")) == "" {

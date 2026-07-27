@@ -1,6 +1,8 @@
 package verdict
 
 import (
+	"cmp"
+
 	"github.com/hypertrial/intentci/internal/ir"
 	"github.com/hypertrial/intentci/internal/provider"
 )
@@ -90,7 +92,7 @@ func EvaluateNodeWithPolicy(n ir.VerifyNode, leaves map[string]provider.Result, 
 				return Pass, r, ev
 			}
 		}
-		allFailed := len(values) > 0
+		allFailed := true
 		for _, value := range values {
 			if value != Fail {
 				allFailed = false
@@ -232,13 +234,13 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 	out := RequirementResult{
 		ID: r.ID, Title: r.Title, Priority: r.Priority, Obligations: obs, Verdict: Pass,
 	}
-	required := 0
+	hasRequired := false
 	for index := range obs {
 		o := obs[index]
 		if !o.Required {
 			continue
 		}
-		required++
+		hasRequired = true
 		if o.Verdict == Skipped {
 			o.Verdict = Unproven
 			if o.Reason == "" {
@@ -254,7 +256,7 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 	if len(obs) == 0 {
 		out.Verdict = Unproven
 		out.Reason = "no obligations selected"
-	} else if required == 0 {
+	} else if !hasRequired {
 		out.Verdict = Pass
 		out.Reason = "no required obligations"
 	}
@@ -272,7 +274,7 @@ func AggregateRun(reqs []RequirementResult) RunResult {
 		case "recommended", "informational":
 			continue
 		case "required":
-			if rank(r.Verdict) > rank(out.Verdict) {
+			if cmp.Compare(rank(r.Verdict), rank(out.Verdict)) == 1 {
 				out.Verdict = r.Verdict
 			}
 		default:

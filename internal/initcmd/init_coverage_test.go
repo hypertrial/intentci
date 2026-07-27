@@ -10,7 +10,7 @@ import (
 )
 
 func TestExampleLanguagesAndErrors(t *testing.T) {
-	for _, lang := range []string{"", "go", "python", "typescript", "ts", "rust", "other"} {
+	for _, lang := range []string{"", "go", "python", "typescript", "ts", "rust", "java", "other"} {
 		root := t.TempDir()
 		if err := initcmd.Run(initcmd.Options{Root: root, Language: lang}); err != nil {
 			t.Fatal(err)
@@ -35,6 +35,10 @@ func TestExampleLanguagesAndErrors(t *testing.T) {
 			}
 		case "rust":
 			if !strings.Contains(s, "cargo test") {
+				t.Fatal(s)
+			}
+		case "java":
+			if !strings.Contains(s, "mvn test") {
 				t.Fatal(s)
 			}
 		default:

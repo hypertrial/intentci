@@ -71,7 +71,7 @@ func TestWriteAttemptStageFailures(t *testing.T) {
 	}
 	oldWrite := writeFile
 	defer func() { writeFile = oldWrite }()
-	for failure := 1; failure <= 9; failure++ {
+	for failure := 1; failure <= 12; failure++ {
 		calls := 0
 		writeFile = func(path string, content []byte, mode os.FileMode) error {
 			calls++
@@ -230,12 +230,28 @@ func TestLowLevelAtomicAndPathFailures(t *testing.T) {
 	if err := store.writeJSONAtomic(filepath.Join(store.Root, "bad-atomic.json"), make(chan int)); err == nil {
 		t.Fatal("atomic JSON marshal failure ignored")
 	}
+	if err := store.writeInitialJSON(filepath.Join(store.Root, "bad-initial.json"), make(chan int)); err == nil {
+		t.Fatal("initial JSON marshal failure ignored")
+	}
 	outside := filepath.Join(root, "outside")
 	if err := store.writeImmutable(outside, nil); err == nil {
 		t.Fatal("immutable escape accepted")
 	}
 	if err := store.writeAtomic(outside, nil); err == nil {
 		t.Fatal("atomic escape accepted")
+	}
+	if err := store.writeInitialImmutable(outside, nil); err == nil {
+		t.Fatal("initial immutable escape accepted")
+	}
+	initialPath := filepath.Join(store.Root, "initial")
+	if err := store.writeInitialImmutable(initialPath, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.writeInitialImmutable(initialPath, []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(initialPath); err != nil || string(raw) != "first" {
+		t.Fatalf("initial immutable content=%q err=%v", raw, err)
 	}
 	path := filepath.Join(store.Root, "same")
 	if err := store.writeImmutable(path, []byte("same")); err != nil {
@@ -248,15 +264,20 @@ func TestLowLevelAtomicAndPathFailures(t *testing.T) {
 		t.Fatal("immutable replacement accepted")
 	}
 
-	oldRead, oldMkdir, oldWrite, oldRename := readFile, mkdirAll, writeFile, renameFile
+	oldRead, oldStat, oldMkdir, oldWrite, oldRename := readFile, statFile, mkdirAll, writeFile, renameFile
 	defer func() {
-		readFile, mkdirAll, writeFile, renameFile = oldRead, oldMkdir, oldWrite, oldRename
+		readFile, statFile, mkdirAll, writeFile, renameFile = oldRead, oldStat, oldMkdir, oldWrite, oldRename
 	}()
 	readFile = func(string) ([]byte, error) { return nil, errors.New("read") }
 	if err := store.writeImmutable(filepath.Join(store.Root, "read-error"), nil); err == nil {
 		t.Fatal("read error ignored")
 	}
 	readFile = oldRead
+	statFile = func(string) (os.FileInfo, error) { return nil, errors.New("stat") }
+	if err := store.writeInitialImmutable(filepath.Join(store.Root, "initial-stat-error"), nil); err == nil {
+		t.Fatal("initial stat error ignored")
+	}
+	statFile = oldStat
 	mkdirAll = func(string, os.FileMode) error { return errors.New("mkdir") }
 	if err := store.writeAtomic(filepath.Join(store.Root, "mkdir-error"), nil); err == nil {
 		t.Fatal("mkdir error ignored")

@@ -5,52 +5,67 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  release-validation:
+    name: release-validation (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.23.x"
-      - name: Vet
-        run: go vet ./...
-      - name: Test with 100% coverage gate
-        run: ./scripts/check-coverage.sh
-      - name: Build
-        run: go build -o intentci ./cmd/intentci
-      - name: Compile dogfood
+          cache: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: examples/typescript/package-lock.json
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - name: Full v1 release validation
+        run: ./scripts/validate_v1_release.sh dist/release-evidence
+      - name: Build dogfood binary
+        run: go build -trimpath -o intentci ./cmd/intentci
+      - name: Dogfood strict compile
         run: ./intentci compile --strict
-      - name: Version
-        run: ./intentci version
-      - name: Doctor
-        run: ./intentci doctor
-      - name: Dogfood verify
-        run: ./intentci verify --all --no-cache --format json --output /tmp/intentci.json
+      - name: Dogfood verification
+        run: ./intentci verify --all --no-cache --format json --output intentci-report.json
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-evidence-${{ matrix.os }}
+          path: |
+            dist/release-evidence/
+            intentci-report.json
 
   build-matrix:
+    name: build-matrix
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.23.x"
-      - name: Cross-compile
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          VER="${GITHUB_SHA::7}"
-          for pair in linux/amd64 darwin/amd64 darwin/arm64; do
-            GOOS="${pair%/*}"
-            GOARCH="${pair#*/}"
-            GOOS="$GOOS" GOARCH="$GOARCH" go build \
-              -ldflags="-X github.com/hypertrial/intentci/internal/version.Version=1.0.0-dev+${VER}" \
-              -o "dist/intentci_${GOOS}_${GOARCH}" ./cmd/intentci
-          done
-          ls -la dist
+          cache: true
+      - name: Cross-compile supported targets
+        run: ./scripts/cross_compile.sh dist/cross-compile
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: cross-compiled-binaries
+          path: dist/cross-compile/

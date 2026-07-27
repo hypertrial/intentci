@@ -49,7 +49,7 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing config")
-	cmd.Flags().StringVar(&language, "language", "", "Example language (go|python|typescript|rust)")
+	cmd.Flags().StringVar(&language, "language", "", "Example language (go|python|typescript|rust|java)")
 	cmd.Flags().StringVar(&ci, "ci", "", "CI template (github)")
 	cmd.Flags().BoolVar(&noExample, "no-example", false, "Skip example requirement")
 	return cmd

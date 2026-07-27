@@ -61,6 +61,13 @@ func TestBoundaryAllowedAndDedupe(t *testing.T) {
 	if !*res.Evidence[0].Passed {
 		t.Fatal(res)
 	}
+	res = p.Execute(context.Background(), provider.Request{
+		ChangedFiles: []string{"src/a.go"},
+		Spec:         ir.ProviderSpec{Forbidden: []string{"migrations/**"}},
+	})
+	if !*res.Evidence[0].Passed {
+		t.Fatalf("forbidden-only rule should allow unmatched paths: %+v", res)
+	}
 }
 
 func TestCommandTimeoutExitAndExpect(t *testing.T) {

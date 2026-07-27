@@ -161,6 +161,13 @@ func (s *Store) WriteAttempt(bundle *Bundle) error {
 	if err := mkdirAll(runDir, 0o755); err != nil {
 		return err
 	}
+	attemptDir := filepath.Join(runDir, "attempts", bundle.AttemptID)
+	if err := mkdirAll(filepath.Join(attemptDir, "logs"), 0o755); err != nil {
+		return err
+	}
+	if err := mkdirAll(filepath.Join(attemptDir, "artifacts"), 0o755); err != nil {
+		return err
+	}
 	if bundle.Document != nil {
 		if bundle.Document.Requirements == nil {
 			bundle.Document.Requirements = make([]ir.Requirement, 0)
@@ -191,7 +198,10 @@ func (s *Store) WriteAttempt(bundle *Bundle) error {
 		}
 	}
 	if bundle.RepositoryState != nil {
-		if err := s.writeJSONImmutable(filepath.Join(runDir, "repository-state.json"), bundle.RepositoryState); err != nil {
+		if err := s.writeInitialJSON(filepath.Join(runDir, "repository-state.json"), bundle.RepositoryState); err != nil {
+			return err
+		}
+		if err := s.writeJSONImmutable(filepath.Join(attemptDir, "repository-state.json"), bundle.RepositoryState); err != nil {
 			return err
 		}
 	}
@@ -199,17 +209,13 @@ func (s *Store) WriteAttempt(bundle *Bundle) error {
 	if bundle.RepositoryState != nil {
 		patch = bundle.RepositoryState.DiffPatch
 	}
-	if err := s.writeImmutable(filepath.Join(runDir, "diff.patch"), []byte(patch)); err != nil {
+	if err := s.writeInitialImmutable(filepath.Join(runDir, "diff.patch"), []byte(patch)); err != nil {
+		return err
+	}
+	if err := s.writeImmutable(filepath.Join(attemptDir, "diff.patch"), []byte(patch)); err != nil {
 		return err
 	}
 
-	attemptDir := filepath.Join(runDir, "attempts", bundle.AttemptID)
-	if err := mkdirAll(filepath.Join(attemptDir, "logs"), 0o755); err != nil {
-		return err
-	}
-	if err := mkdirAll(filepath.Join(attemptDir, "artifacts"), 0o755); err != nil {
-		return err
-	}
 	var records []provider.Evidence
 	keys := sortedProviderKeys(bundle.ProviderLogs)
 	for _, key := range keys {
@@ -450,6 +456,27 @@ func (s *Store) writeJSONAtomic(path string, value any) error {
 		return err
 	}
 	return s.writeAtomic(path, append(raw, '\n'))
+}
+
+func (s *Store) writeInitialJSON(path string, value any) error {
+	raw, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return s.writeInitialImmutable(path, append(raw, '\n'))
+}
+
+func (s *Store) writeInitialImmutable(path string, content []byte) error {
+	safe, err := s.safePath(path)
+	if err != nil {
+		return err
+	}
+	if _, err := statFile(safe); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return s.writeImmutable(path, content)
 }
 
 func (s *Store) writeImmutable(path string, content []byte) error {

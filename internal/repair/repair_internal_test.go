@@ -21,7 +21,7 @@ func TestHelpers(t *testing.T) {
 	before := map[string]string{"a": "1", "b": "1"}
 	after := map[string]string{"b": "1", "c": "1"}
 	got := diffPaths(before, after)
-	if len(got) != 2 {
+	if len(got) != 2 || got[0] != "a" || got[1] != "c" {
 		t.Fatalf("%v", got)
 	}
 	// snapshotDiff error path (not a git repo)
@@ -44,6 +44,27 @@ func TestHelpers(t *testing.T) {
 		t.Fatal(snapshot)
 	}
 	ignoreStoreFiles(snapshot, "/repo", "/outside")
+
+	if got := storePrefix("/repo", "/repo/runs"); got != "runs" {
+		t.Fatalf("child store prefix = %q", got)
+	}
+	for name, storeRoot := range map[string]string{
+		"same":    "/repo",
+		"parent":  "/",
+		"sibling": "/other",
+	} {
+		t.Run("store-prefix-"+name, func(t *testing.T) {
+			if got := storePrefix("/repo", storeRoot); got != "" {
+				t.Fatalf("store prefix = %q", got)
+			}
+		})
+	}
+	oldRelativePath := relativePath
+	relativePath = func(string, string) (string, error) { return "", errors.New("relative") }
+	if got := storePrefix("/repo", "/repo/runs"); got != "" {
+		t.Fatalf("errored store prefix = %q", got)
+	}
+	relativePath = oldRelativePath
 
 	root := t.TempDir()
 	cmd := exec.Command("git", "init")

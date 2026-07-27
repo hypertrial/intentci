@@ -19,9 +19,13 @@ FAIL REQ-AUTH-001
 
 ## Status
 
-**v1.0.0** — Spec-complete rewrite: Markdown requirements, Intent IR, providers (command/junit/sarif/boundary/git-diff/json/manual), evidence bundles, bounded repair, exit codes `0`–`10`. See [docs/v1.md](docs/v1.md), [docs/acceptance-v1.md](docs/acceptance-v1.md), [v1.md](v1.md).
+The v1 product model is implemented and validated by the executable
+[§38 acceptance matrix](docs/acceptance-v1.md). The published v1.0.x releases
+are preserved as historical tags; v1.1.0 is the first release gated against
+the complete normative [`v1.md`](v1.md).
 
 Breaking change from v0.x Product Contracts: [docs/migration-v0-to-v1.md](docs/migration-v0-to-v1.md).
+Existing v1.0.x users: [v1.0.x → v1.1 migration](docs/migration-v1.0-to-v1.1.md).
 
 ## Install
 
@@ -85,11 +89,28 @@ intentci repair \
 --changed                 Verify requirements affected by the Git diff (default; empty diff verifies nothing)
 --requirement <id>        Single requirement
 --obligation <id>         Single obligation
+--provider <id>           Single verifier id
 --base <ref>              Comparison base
+--head <ref>              Comparison head
+--max-parallel <n>        Override bounded concurrency
+--fail-fast               Stop scheduling new work after a non-pass
+--no-git                  Allow all/explicit verification without Git provenance
 --format text|json|junit  Output format
 --output <path>           Write report to a file
 --no-cache                Disable successful-provider cache
 ```
+
+Invalid formats and empty selectors use exit `8`.
+
+### Repair agents
+
+`--agent NAME` resolves `intentci-agent-NAME` on `PATH`. It is mutually
+exclusive with `--agent-command`. `{packet}`, `{repository}`, and `{attempt}`
+placeholders are expanded for command adapters.
+
+`repair.max_attempts` is the total number of immutable verification attempts,
+including the initial failed state. No agent runs after the last permitted
+verification. IntentCI v1 executes agents on the host and is not a sandbox.
 
 ## Exit codes
 
@@ -109,13 +130,28 @@ intentci repair \
 
 Agents should consume JSON (`--format json`) rather than parsing terminal text.
 
+## Evidence
+
+Each run under `.intentci/runs/<run-id>/` contains canonical IR, the selected
+plan, initial and per-attempt repository state/diffs, evidence, verdicts, logs,
+artifacts, terminal/JSON/JUnit reports, a manifest, and a final verdict that
+records the manifest hash. Attempts and finalized runs are immutable.
+
+See the [configuration reference](docs/configuration.md),
+[provider protocol](docs/provider-protocol-v1.md), and
+[security model](docs/SECURITY.md). The
+[normative conformance index](docs/v1-conformance.md) maps every v1 section to
+its executable release control.
+
 ## Privacy
 
-Telemetry is off by default (`telemetry.enabled: false`). IntentCI executes repository-defined provider commands locally. HTTP is only used if you configure providers that perform it.
+Telemetry is off by default (`telemetry.enabled: false`). IntentCI executes
+repository-defined providers and repair agents locally with a minimal
+environment plus explicit allowlists. HTTP is only used by tools you configure.
 
 ## Platform support
 
-macOS and Linux. Windows via WSL.
+macOS amd64/arm64 and Linux amd64. Windows via WSL.
 
 ## License
 

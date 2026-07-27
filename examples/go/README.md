@@ -1,7 +1,10 @@
 # Go example
 
+This tracked project proves a real Go test command through an IntentCI
+requirement.
+
 ```bash
-intentci init --language go
+go test ./...
 intentci compile --strict
-intentci verify --all
+intentci verify --all --no-git
 ```
