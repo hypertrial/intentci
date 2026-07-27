@@ -160,15 +160,7 @@ sleep 30
 		_, err := Root(ctx, t.TempDir())
 		result <- err
 	}()
-	waitForFile(t, marker)
-	data, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	pid := waitForPID(t, marker)
 	defer syscall.Kill(pid, syscall.SIGKILL)
 	cancel()
 	select {
@@ -184,14 +176,18 @@ sleep 30
 	}
 }
 
-func waitForFile(t *testing.T, path string) {
+func waitForPID(t *testing.T, path string) int {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
+		data, err := os.ReadFile(path)
+		if err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+				return pid
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %s", path)
+	t.Fatalf("timed out waiting for PID in %s", path)
+	return 0
 }
