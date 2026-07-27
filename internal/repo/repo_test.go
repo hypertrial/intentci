@@ -104,3 +104,30 @@ func TestChangedRenameAndUnbornRepository(t *testing.T) {
 		t.Fatalf("unborn Changed() = %v", files)
 	}
 }
+
+func TestChangedKeepsStagedAndUnstagedPathsSeparate(t *testing.T) {
+	root := newGitRepo(t)
+	write(t, root, "file.go", "package original\n")
+	run(t, root, "git", "add", ".")
+	run(t, root, "git", "commit", "-qm", "initial")
+
+	write(t, root, "file.go", "package staged\n")
+	run(t, root, "git", "add", "file.go")
+	run(t, root, "git", "restore", "--worktree", "--source=HEAD", "file.go")
+
+	files, err := Changed(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(files, []string{"file.go"}) {
+		t.Fatalf("Changed() = %v, want staged and unstaged path", files)
+	}
+}
+
+func TestChangedRejectsCorruptHead(t *testing.T) {
+	root := newGitRepo(t)
+	write(t, root, ".git/HEAD", "not-a-ref\n")
+	if _, err := Changed(root); err == nil {
+		t.Fatal("Changed() accepted a corrupt HEAD")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -96,6 +97,7 @@ func TestDetectStacksAndPriority(t *testing.T) {
 		{"maven", []string{"pom.xml"}, "java-tests", "mvn test"},
 		{"gradle wrapper", []string{"build.gradle", "gradlew"}, "java-tests", "./gradlew test"},
 		{"gradle", []string{"build.gradle.kts"}, "java-tests", "gradle test"},
+		{"gradle settings", []string{"settings.gradle"}, "java-tests", "gradle test"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -154,9 +156,31 @@ func TestCLIHelpVersionAndUsage(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr, "unsupported arguments") {
 		t.Fatalf("usage = %d, %q", code, stderr)
 	}
+	code, _, stderr = runFrom(t, context.Background(), root, "-h")
+	if code != 2 || !strings.Contains(stderr, "unsupported arguments") {
+		t.Fatalf("short help usage = %d, %q", code, stderr)
+	}
 	code, _, stderr = runFrom(t, context.Background(), t.TempDir())
 	if code != 2 || !strings.Contains(stderr, "not a Git repository") {
 		t.Fatalf("non-repo = %d, %q", code, stderr)
+	}
+}
+
+func TestDetectIncludesWrapperPaths(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "pom.xml", "")
+	writeFile(t, root, "mvnw", "")
+	maven := detect(root)
+	if !slices.Contains(maven.Paths, "mvnw") {
+		t.Fatalf("Maven paths = %v", maven.Paths)
+	}
+
+	root = t.TempDir()
+	writeFile(t, root, "settings.gradle", "")
+	writeFile(t, root, "gradlew", "")
+	gradle := detect(root)
+	if gradle.Run != "./gradlew test" || !slices.Contains(gradle.Paths, "gradlew") {
+		t.Fatalf("Gradle check = %#v", gradle)
 	}
 }
 

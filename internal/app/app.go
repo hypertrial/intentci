@@ -69,7 +69,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 func RunFrom(ctx context.Context, start string, args []string, stdout, stderr io.Writer) int {
 	switch {
-	case len(args) == 1 && (args[0] == "--help" || args[0] == "-h"):
+	case len(args) == 1 && args[0] == "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
 	case len(args) == 1 && args[0] == "version":
@@ -290,10 +290,11 @@ func detect(root string) config.Check {
 		}
 		return config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
-			Paths: []string{"**/*.java", "pom.xml", ".mvn/**"}, Run: run,
+			Paths: []string{"**/*.java", "pom.xml", ".mvn/**", "mvnw", "mvnw.cmd"}, Run: run,
 		}
 	}
-	if exists("build.gradle") || exists("build.gradle.kts") {
+	if exists("build.gradle") || exists("build.gradle.kts") ||
+		exists("settings.gradle") || exists("settings.gradle.kts") || exists("gradlew") {
 		run := "gradle test"
 		if exists("gradlew") {
 			run = "./gradlew test"
@@ -303,6 +304,7 @@ func detect(root string) config.Check {
 			Paths: []string{
 				"**/*.java", "build.gradle", "build.gradle.kts",
 				"settings.gradle", "settings.gradle.kts", "gradle/**", "gradle.lockfile",
+				"gradlew", "gradlew.bat",
 			},
 			Run: run,
 		}

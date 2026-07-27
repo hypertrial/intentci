@@ -2,6 +2,7 @@ package repo
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -23,12 +24,21 @@ func Root(start string) (string, error) {
 
 func Changed(root string) ([]string, error) {
 	files := map[string]bool{}
-	if _, err := git(root, "rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
-		output, err := git(root, "diff", "--name-only", "--no-renames", "-z", "HEAD", "--")
-		if err != nil {
-			return nil, err
+	hasHead, err := headExists(root)
+	if err != nil {
+		return nil, err
+	}
+	if hasHead {
+		for _, args := range [][]string{
+			{"diff", "--cached", "--name-only", "--no-renames", "-z", "HEAD", "--"},
+			{"diff", "--name-only", "--no-renames", "-z", "--"},
+		} {
+			output, err := git(root, args...)
+			if err != nil {
+				return nil, err
+			}
+			add(files, output)
 		}
-		add(files, output)
 	} else {
 		output, err := git(root, "ls-files", "--cached", "-z")
 		if err != nil {
@@ -48,6 +58,25 @@ func Changed(root string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func headExists(root string) (bool, error) {
+	command := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "HEAD")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	err := command.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() == 1 && stderr.Len() == 0 {
+		return false, nil
+	}
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" {
+		detail = err.Error()
+	}
+	return false, fmt.Errorf("git rev-parse --verify --quiet HEAD: %s", detail)
 }
 
 func add(files map[string]bool, output []byte) {

@@ -55,9 +55,10 @@ Then use one command during normal development:
 intentci
 ```
 
-IntentCI finds staged, unstaged, deleted, renamed, and untracked non-ignored
-files relative to `HEAD`. It runs matching checks in YAML order and stops at
-the first failure. A change to `.intentci.yaml` runs every check.
+IntentCI takes the union of staged and unstaged tracked paths, then adds
+deleted, renamed, and untracked non-ignored files. Commands run against the
+current working tree in YAML order and stop at the first failure. A change to
+`.intentci.yaml` runs every check.
 
 Run everything explicitly with:
 

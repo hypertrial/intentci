@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Changed-file discovery now unions staged and unstaged paths, so opposing
+  index and working-tree edits cannot hide a dirty path.
+- Invalid `HEAD` state is reported instead of being mistaken for an unborn
+  repository.
+- The strict CLI rejects the undocumented `-h` alias.
+- Generated Maven and Gradle checks include their wrapper scripts, and
+  settings-only Gradle roots are detected.
+
 ## 2.0.2 — 2026-07-27
 
 ### Fixed
@@ -23,7 +35,8 @@ smoke job omitted Go itself. Use the fully validated v2.0.2 release.
 IntentCI v2 is an intentionally incompatible, MacBook-first rewrite.
 
 The release archive was published successfully, but its packaged smoke
-validation exposed the login-shell `PATH` bug fixed by v2.0.1. Use v2.0.1.
+validation exposed the login-shell `PATH` bug fixed by v2.0.1. Use the fully
+validated v2.0.2 release.
 
 ### Added
 
