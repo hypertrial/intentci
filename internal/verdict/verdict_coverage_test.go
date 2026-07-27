@@ -62,7 +62,7 @@ func TestNotAnyEmptyAndWorse(t *testing.T) {
 		{Provider: &ir.ProviderSpec{ID: "bad", Provider: "command"}},
 		{Provider: &ir.ProviderSpec{ID: "err", Provider: "command"}},
 	}}, leaves)
-	if v != verdict.Fail {
+	if v != verdict.Error {
 		t.Fatal(v)
 	}
 	v, reason, _ := verdict.EvaluateNode(ir.VerifyNode{All: []ir.VerifyNode{
@@ -106,6 +106,9 @@ func TestAggregateAndExitCodes(t *testing.T) {
 	run := verdict.AggregateRun(nil)
 	if run.Verdict != verdict.Pass {
 		t.Fatal(run.Verdict)
+	}
+	if run.Requirements == nil {
+		t.Fatal("empty run requirements must be encoded as an empty JSON array")
 	}
 	run = verdict.AggregateRun([]verdict.RequirementResult{
 		{Priority: "recommended", Verdict: verdict.Fail},

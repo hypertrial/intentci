@@ -13,6 +13,8 @@ func TestEmbeddedSchemasNonEmpty(t *testing.T) {
 		"verdict":     schema.VerdictJSON,
 		"repair":      schema.RepairJSON,
 		"ir":          schema.IRJSON,
+		"plan":        schema.PlanJSON,
+		"report":      schema.ReportJSON,
 	} {
 		if len(b) < 10 {
 			t.Fatalf("%s schema empty", name)

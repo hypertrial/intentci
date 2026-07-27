@@ -18,12 +18,12 @@ const (
 
 // ObligationResult is the verdict for one obligation.
 type ObligationResult struct {
-	ID       string             `json:"id"`
-	Statement string            `json:"statement"`
-	Required bool               `json:"required"`
-	Verdict  string             `json:"verdict"`
-	Reason   string             `json:"reason,omitempty"`
-	Evidence []provider.Evidence `json:"evidence,omitempty"`
+	ID        string              `json:"id"`
+	Statement string              `json:"statement"`
+	Required  bool                `json:"required"`
+	Verdict   string              `json:"verdict"`
+	Reason    string              `json:"reason,omitempty"`
+	Evidence  []provider.Evidence `json:"evidence,omitempty"`
 }
 
 // RequirementResult is the aggregated requirement verdict.
@@ -42,8 +42,19 @@ type RunResult struct {
 	Requirements []RequirementResult `json:"requirements"`
 }
 
+// EvidencePolicy controls whether non-deterministic evidence may satisfy an obligation.
+type EvidencePolicy struct {
+	Class               string
+	ConfidenceThreshold *float64
+}
+
 // EvaluateNode evaluates a verify expression given leaf results keyed by provider spec id.
 func EvaluateNode(n ir.VerifyNode, leaves map[string]provider.Result) (string, string, []provider.Evidence) {
+	return EvaluateNodeWithPolicy(n, leaves, EvidencePolicy{})
+}
+
+// EvaluateNodeWithPolicy evaluates an expression with obligation evidence rules.
+func EvaluateNodeWithPolicy(n ir.VerifyNode, leaves map[string]provider.Result, policy EvidencePolicy) (string, string, []provider.Evidence) {
 	if n.Provider != nil {
 		key := n.Provider.ID
 		if key == "" {
@@ -53,14 +64,14 @@ func EvaluateNode(n ir.VerifyNode, leaves map[string]provider.Result) (string, s
 		if !ok {
 			return Unproven, "missing provider evidence", nil
 		}
-		return leafVerdict(res)
+		return leafVerdict(res, policy)
 	}
 	if len(n.All) > 0 {
 		var ev []provider.Evidence
 		worst := Pass
 		reason := ""
 		for _, c := range n.All {
-			v, r, e := EvaluateNode(c, leaves)
+			v, r, e := EvaluateNodeWithPolicy(c, leaves, policy)
 			ev = append(ev, e...)
 			worst, reason = worse(worst, reason, v, r)
 		}
@@ -68,27 +79,37 @@ func EvaluateNode(n ir.VerifyNode, leaves map[string]provider.Result) (string, s
 	}
 	if len(n.Any) > 0 {
 		var ev []provider.Evidence
-		best := Fail
-		reason := "all alternatives failed"
-		anyPass := false
+		values := make([]string, 0, len(n.Any))
+		reasons := make([]string, 0, len(n.Any))
 		for _, c := range n.Any {
-			v, r, e := EvaluateNode(c, leaves)
+			v, r, e := EvaluateNodeWithPolicy(c, leaves, policy)
 			ev = append(ev, e...)
+			values = append(values, v)
+			reasons = append(reasons, r)
 			if v == Pass {
-				anyPass = true
-				best = Pass
-				reason = r
-			} else if !anyPass {
-				best, reason = worse(best, reason, v, r)
+				return Pass, r, ev
 			}
 		}
-		if anyPass {
-			return Pass, reason, ev
+		allFailed := len(values) > 0
+		for _, value := range values {
+			if value != Fail {
+				allFailed = false
+			}
 		}
-		return best, reason, ev
+		if allFailed {
+			return Fail, "all alternatives failed", ev
+		}
+		value, reason := Unproven, "no alternative produced sufficient evidence"
+		for index, candidate := range values {
+			if candidate == Fail {
+				continue
+			}
+			value, reason = worse(value, reason, candidate, reasons[index])
+		}
+		return value, reason, ev
 	}
 	if n.Not != nil {
-		v, r, e := EvaluateNode(*n.Not, leaves)
+		v, r, e := EvaluateNodeWithPolicy(*n.Not, leaves, policy)
 		switch v {
 		case Pass:
 			return Fail, "negation of pass", e
@@ -101,26 +122,46 @@ func EvaluateNode(n ir.VerifyNode, leaves map[string]provider.Result) (string, s
 	return Unproven, "empty verify expression", nil
 }
 
-func leafVerdict(res provider.Result) (string, string, []provider.Evidence) {
+func leafVerdict(res provider.Result, policy EvidencePolicy) (string, string, []provider.Evidence) {
 	if res.Status == "error" {
 		return Error, firstDiag(res), res.Evidence
 	}
 	if res.Status == "skipped" {
 		return Skipped, "provider skipped", res.Evidence
 	}
+	if policy.Class == "human" {
+		return ReviewRequired, "obligation requires human evidence", res.Evidence
+	}
+	if policy.Class == "informational" {
+		return Unproven, "informational evidence cannot satisfy an obligation", res.Evidence
+	}
+	uncertainReason := ""
 	for _, e := range res.Evidence {
-		if e.Class == "manual" || (e.Data != nil && e.Data["review_required"] == true) {
+		if e.Data != nil && e.Data["retry_superseded"] == true {
+			continue
+		}
+		if e.Class == "manual" || e.Class == "human" || (e.Data != nil && e.Data["review_required"] == true) {
 			return ReviewRequired, e.Summary, res.Evidence
 		}
+		if e.Class == "informational" {
+			continue
+		}
 		if e.Class == "probabilistic" {
-			if e.Passed != nil && !*e.Passed {
-				return Uncertain, e.Summary, res.Evidence
-			}
-			if e.Passed == nil {
-				return Uncertain, e.Summary, res.Evidence
+			if policy.Class != "probabilistic" || policy.ConfidenceThreshold == nil {
+				uncertainReason = "probabilistic evidence is not explicitly permitted"
+			} else if e.Confidence == nil || *e.Confidence < *policy.ConfidenceThreshold {
+				uncertainReason = "probabilistic confidence is below the required threshold"
+			} else if e.Passed == nil || !*e.Passed {
+				uncertainReason = e.Summary
 			}
 		}
+		if policy.Class == "deterministic" && e.Class != "deterministic" && e.Class != "informational" {
+			uncertainReason = "evidence does not meet the deterministic evidence requirement"
+		}
 		if e.Passed != nil && !*e.Passed {
+			if e.Class == "probabilistic" {
+				continue
+			}
 			return Fail, e.Summary, res.Evidence
 		}
 	}
@@ -128,9 +169,21 @@ func leafVerdict(res provider.Result) (string, string, []provider.Evidence) {
 		return Unproven, "no evidence produced", nil
 	}
 	for _, e := range res.Evidence {
+		if e.Data != nil && e.Data["retry_superseded"] == true {
+			continue
+		}
+		if e.Class == "informational" {
+			return Unproven, "informational evidence cannot satisfy an obligation", res.Evidence
+		}
+		if e.Class == "probabilistic" {
+			continue
+		}
 		if e.Passed == nil {
 			return Unproven, "evidence missing pass/fail", res.Evidence
 		}
+	}
+	if uncertainReason != "" {
+		return Uncertain, uncertainReason, res.Evidence
 	}
 	return Pass, "all evidence passed", res.Evidence
 }
@@ -180,11 +233,19 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 		ID: r.ID, Title: r.Title, Priority: r.Priority, Obligations: obs, Verdict: Pass,
 	}
 	required := 0
-	for _, o := range obs {
+	for index := range obs {
+		o := obs[index]
 		if !o.Required {
 			continue
 		}
 		required++
+		if o.Verdict == Skipped {
+			o.Verdict = Unproven
+			if o.Reason == "" {
+				o.Reason = "required obligation was not executed"
+			}
+			out.Obligations[index] = o
+		}
 		if rank(o.Verdict) > rank(out.Verdict) {
 			out.Verdict = o.Verdict
 			out.Reason = o.Reason
@@ -202,6 +263,9 @@ func AggregateRequirement(r ir.Requirement, obs []ObligationResult) RequirementR
 
 // AggregateRun combines requirement verdicts. Only required priority blocks by default.
 func AggregateRun(reqs []RequirementResult) RunResult {
+	if reqs == nil {
+		reqs = []RequirementResult{}
+	}
 	out := RunResult{Requirements: reqs, Verdict: Pass}
 	for _, r := range reqs {
 		switch r.Priority {
@@ -239,4 +303,14 @@ func ExitCode(v string) int {
 	default:
 		return 7
 	}
+}
+
+// ExitCodeConfigured applies CI relaxation without changing the recorded verdict.
+func ExitCodeConfigured(value string, failOn []string) int {
+	for _, configured := range failOn {
+		if configured == value {
+			return ExitCode(value)
+		}
+	}
+	return 0
 }

@@ -20,7 +20,7 @@ func (p *ManualProvider) Execute(ctx context.Context, req Request) Result {
 		Provider: p.Name(), ProviderVersion: p.Version(), Status: "completed",
 		DurationMS: 0,
 		Evidence: []Evidence{{
-			ID: firstNonEmpty(req.Spec.ID, "manual"), Class: "manual",
+			ID: firstNonEmpty(req.Spec.ID, "manual"), Class: "human",
 			Summary: "manual review required", Passed: nil,
 			Data: map[string]any{"review_required": true},
 		}},

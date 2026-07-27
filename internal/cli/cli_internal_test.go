@@ -71,7 +71,7 @@ requirements:
 	}
 	b := &evidence.Bundle{
 		RunID: "r", HeadCommit: "abc",
-		Run: verdict.RunResult{Requirements: []verdict.RequirementResult{
+		Run: verdict.RunResult{Verdict: verdict.Fail, Requirements: []verdict.RequirementResult{
 			{Verdict: "pass"}, {Verdict: "fail"}, {Verdict: "unproven"}, {Verdict: "uncertain"}, {Verdict: "error"},
 		}},
 	}

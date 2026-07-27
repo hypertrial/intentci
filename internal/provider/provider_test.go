@@ -44,7 +44,7 @@ func TestJUnitSARIFJSONManual(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 	sarifPath := filepath.Join(root, "out.sarif")
-	if err := os.WriteFile(sarifPath, []byte(`{"runs":[{"results":[]}]}`), 0o644); err != nil {
+	if err := os.WriteFile(sarifPath, []byte(`{"version":"2.1.0","runs":[{"results":[]}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sp, _ := reg.Get("sarif")
@@ -63,7 +63,7 @@ func TestJUnitSARIFJSONManual(t *testing.T) {
 	}
 	mp, _ := reg.Get("manual")
 	res = mp.Execute(context.Background(), provider.Request{Spec: ir.ProviderSpec{Provider: "manual", ID: "m"}})
-	if res.Evidence[0].Class != "manual" {
+	if res.Evidence[0].Class != "human" {
 		t.Fatal(res)
 	}
 	gp, _ := reg.Get("git-diff")
@@ -84,7 +84,7 @@ func TestGeneratedReportsCannotReuseStalePass(t *testing.T) {
 		content  string
 	}{
 		{name: "junit", provider: "junit", report: "out.xml", content: `<testsuite tests="1" failures="0"/>`},
-		{name: "sarif", provider: "sarif", report: "out.sarif", content: `{"runs":[{"results":[]}]}`},
+		{name: "sarif", provider: "sarif", report: "out.sarif", content: `{"version":"2.1.0","runs":[{"results":[]}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(root, tc.report)

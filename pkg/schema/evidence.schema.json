@@ -3,11 +3,68 @@
   "$id": "https://intentci.dev/schemas/evidence-v1.json",
   "title": "IntentCI Evidence Record",
   "type": "object",
-  "required": ["id", "class", "summary"],
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "attempt_id",
+    "requirement_id",
+    "obligation_id",
+    "verifier_id",
+    "provider",
+    "provider_version",
+    "class",
+    "status",
+    "summary",
+    "repository_commit",
+    "base_commit",
+    "diff_hash",
+    "requirement_hash",
+    "obligation_hash",
+    "verification_plan_hash",
+    "started_at",
+    "completed_at"
+  ],
   "properties": {
-    "id": { "type": "string" },
-    "class": { "type": "string" },
+    "schema_version": { "type": "string", "pattern": "^1(\\.[0-9]+)?$" },
+    "id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "attempt_id": { "type": "string", "minLength": 1 },
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "obligation_id": { "type": "string", "minLength": 1 },
+    "verifier_id": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "provider_version": { "type": "string", "minLength": 1 },
+    "class": { "enum": ["deterministic", "probabilistic", "human", "informational"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "strength": { "type": "string" },
+    "status": { "enum": ["passed", "failed", "error", "skipped", "unknown"] },
     "summary": { "type": "string" },
-    "passed": { "type": ["boolean", "null"] }
+    "paths": { "type": "array", "items": { "type": "string" } },
+    "passed": { "type": ["boolean", "null"] },
+    "data": { "type": "object" },
+    "repository_commit": { "type": "string" },
+    "base_commit": { "type": "string" },
+    "diff_hash": { "type": "string" },
+    "requirement_hash": { "type": "string" },
+    "obligation_hash": { "type": "string" },
+    "verification_plan_hash": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "source_evidence_hash": { "type": "string" },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "media_type": { "type": "string" }
+        }
+      }
+    }
   }
 }

@@ -34,6 +34,7 @@ id: REQ-%03d
 title: Requirement %d
 status: active
 priority: required
+owners: [test]
 applies_to:
   paths: ["**"]
 ---
@@ -52,8 +53,11 @@ Intent %d
     all:
       - provider: command
         id: smoke
-        run: "true"
-        result: {type: exit_code, equals: 0}
+        run: "printf ok"
+        result:
+          type: exit_code
+          equals: 0
+          stdout: {contains: ok}
 `+"```"+`
 `, i, i, i)
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("REQ-%03d.md", i)), []byte(body), 0o644); err != nil {

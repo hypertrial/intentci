@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"github.com/hypertrial/intentci/internal/ir"
+	"github.com/hypertrial/intentci/internal/security"
 )
 
 // JUnitProvider runs a command and/or reads a JUnit XML report.
@@ -21,8 +21,8 @@ func (p *JUnitProvider) Name() string    { return "junit" }
 func (p *JUnitProvider) Version() string { return "1.0.0" }
 
 func (p *JUnitProvider) Validate(spec ir.ProviderSpec) []Diagnostic {
-	if spec.Report == "" && spec.Run == "" {
-		return []Diagnostic{{Message: "run or report required"}}
+	if spec.Report == "" {
+		return []Diagnostic{{Message: "report required"}}
 	}
 	return nil
 }
@@ -44,8 +44,10 @@ type junitTestSuite struct {
 type junitTestCase struct {
 	Name      string     `xml:"name,attr"`
 	Classname string     `xml:"classname,attr"`
+	Time      float64    `xml:"time,attr"`
 	Failure   *junitFail `xml:"failure"`
 	Error     *junitFail `xml:"error"`
+	Skipped   *junitFail `xml:"skipped"`
 }
 
 type junitFail struct {
@@ -57,8 +59,15 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	res := Result{Provider: p.Name(), ProviderVersion: p.Version(), Status: "completed"}
 	report := req.Spec.Report
-	if report != "" && !filepath.IsAbs(report) {
-		report = filepath.Join(req.Root, report)
+	if report != "" {
+		var err error
+		report, err = security.ResolveInside(req.Root, report)
+		if err != nil {
+			res.Status = "error"
+			res.Diagnostics = []string{err.Error()}
+			res.SecurityViolation = security.IsPathViolation(err)
+			return res
+		}
 	}
 	var commandErr error
 	if req.Spec.Run != "" {
@@ -74,24 +83,17 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 			res.DurationMS = time.Since(start).Milliseconds()
 			return res
 		}
-		run := p.Exec
-		if run == nil {
-			run = exec.CommandContext
-		}
-		timeout := req.Timeout
-		if timeout <= 0 {
-			timeout = 10 * time.Minute
-		}
-		cctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		cmd := run(cctx, "sh", "-c", req.Spec.Run)
-		cmd.Dir = req.Root
-		out, err := cmd.CombinedOutput()
-		commandErr = err
+		process := runProcess(ctx, req, "sh", []string{"-c", req.Spec.Run}, nil, p.Exec)
+		commandErr = process.Err
+		res.SecurityViolation = process.SecurityViolation
+		res.ExitCode = process.ExitCode
 		if req.RetainStdout {
-			res.Stdout = string(out)
+			res.Stdout = process.Stdout
 		}
-		if err != nil && cctx.Err() == context.DeadlineExceeded {
+		if req.RetainStderr {
+			res.Stderr = process.Stderr
+		}
+		if process.TimedOut {
 			res.Status = "error"
 			res.Diagnostics = []string{"junit command timed out"}
 			res.DurationMS = time.Since(start).Milliseconds()
@@ -113,14 +115,14 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 		res.Evidence = []Evidence{{ID: req.Spec.ID, Class: "deterministic", Summary: err.Error(), Passed: boolPtr(false)}}
 		return res
 	}
-	failures, total, parseErr := parseJUnit(data)
+	summaryData, parseErr := parseJUnitSummary(data)
 	if parseErr != nil {
 		res.Status = "error"
 		res.Diagnostics = []string{parseErr.Error()}
 		res.DurationMS = time.Since(start).Milliseconds()
 		return res
 	}
-	passed := failures == 0
+	passed := summaryData.Failures == 0 && summaryData.Errors == 0
 	if passed && commandErr != nil {
 		res.Status = "error"
 		res.Diagnostics = []string{"junit generator failed: " + commandErr.Error()}
@@ -131,46 +133,89 @@ func (p *JUnitProvider) Execute(ctx context.Context, req Request) Result {
 		}}
 		return res
 	}
-	summary := fmt.Sprintf("junit: %d tests, %d failures", total, failures)
+	summary := fmt.Sprintf(
+		"junit: %d tests, %d failures, %d errors, %d skipped",
+		summaryData.Tests, summaryData.Failures, summaryData.Errors, summaryData.Skipped,
+	)
+	var passedValue *bool
+	if summaryData.Tests == 0 {
+		passedValue = nil
+		summary = "junit: report contained no tests"
+	} else if summaryData.Skipped == summaryData.Tests {
+		passedValue = nil
+		summary = "junit: all tests were skipped"
+	} else {
+		passedValue = boolPtr(passed)
+	}
 	res.Evidence = []Evidence{{
-		ID: firstNonEmpty(req.Spec.ID, "junit"), Class: "deterministic",
-		Summary: summary, Passed: boolPtr(passed),
-		Data: map[string]any{"tests": total, "failures": failures},
+		ID: firstNonEmpty(req.Spec.ID, "junit"), Class: firstNonEmpty(req.Spec.EvidenceClass, req.EvidenceClass, "deterministic"),
+		Summary: summary, Passed: passedValue,
+		Data: map[string]any{
+			"tests": summaryData.Tests, "failures": summaryData.Failures,
+			"errors": summaryData.Errors, "skipped": summaryData.Skipped,
+			"duration_seconds": summaryData.Duration, "failure_messages": summaryData.Messages,
+		},
 	}}
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
 }
 
 func parseJUnit(data []byte) (failures, total int, err error) {
+	summary, err := parseJUnitSummary(data)
+	return summary.Failures + summary.Errors, summary.Tests, err
+}
+
+type junitSummary struct {
+	Tests    int
+	Failures int
+	Errors   int
+	Skipped  int
+	Duration float64
+	Messages []string
+}
+
+func parseJUnitSummary(data []byte) (junitSummary, error) {
 	var suites junitTestSuites
 	if err := xml.Unmarshal(data, &suites); err == nil && (len(suites.Suites) > 0 || suites.XMLName.Local == "testsuites") {
+		var summary junitSummary
 		for _, s := range suites.Suites {
-			total += s.Tests
-			failures += s.Failures + s.Errors
-			if s.Tests == 0 {
-				for _, c := range s.Cases {
-					total++
-					if c.Failure != nil || c.Error != nil {
-						failures++
-					}
-				}
-			}
+			addJUnitSuite(&summary, s)
 		}
-		return failures, total, nil
+		return summary, nil
 	}
 	var suite junitTestSuite
 	if err := xml.Unmarshal(data, &suite); err != nil {
-		return 0, 0, fmt.Errorf("parse junit: %w", err)
+		return junitSummary{}, fmt.Errorf("parse junit: %w", err)
 	}
-	total = suite.Tests
-	failures = suite.Failures + suite.Errors
-	if total == 0 {
-		for _, c := range suite.Cases {
-			total++
-			if c.Failure != nil || c.Error != nil {
-				failures++
+	var summary junitSummary
+	addJUnitSuite(&summary, suite)
+	return summary, nil
+}
+
+func addJUnitSuite(summary *junitSummary, suite junitTestSuite) {
+	tests := suite.Tests
+	if tests == 0 {
+		tests = len(suite.Cases)
+	}
+	summary.Tests += tests
+	summary.Failures += suite.Failures
+	summary.Errors += suite.Errors
+	for _, testCase := range suite.Cases {
+		summary.Duration += testCase.Time
+		if testCase.Skipped != nil {
+			summary.Skipped++
+		}
+		if testCase.Failure != nil {
+			if suite.Failures == 0 {
+				summary.Failures++
 			}
+			summary.Messages = append(summary.Messages, firstNonEmpty(testCase.Failure.Message, testCase.Failure.Body))
+		}
+		if testCase.Error != nil {
+			if suite.Errors == 0 {
+				summary.Errors++
+			}
+			summary.Messages = append(summary.Messages, firstNonEmpty(testCase.Error.Message, testCase.Error.Body))
 		}
 	}
-	return failures, total, nil
 }

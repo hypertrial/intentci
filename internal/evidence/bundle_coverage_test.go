@@ -73,23 +73,24 @@ func TestWriteLoadErrors(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	// marshal fail
-	if err := store.WriteRepairPacket(id, make(chan int)); err == nil {
+	if err := store.WriteRepairPacket("open", make(chan int)); err == nil {
 		t.Fatal("expected marshal error")
 	}
-	if err := store.WriteRepairPacket(id, map[string]any{"ok": true}); err != nil {
+	if err := store.WriteRepairPacket("open", map[string]any{"ok": true}); err != nil {
 		t.Fatal(err)
 	}
 	// LoadLatest trims whitespace
 	if err := os.WriteFile(filepath.Join(store.Root, "latest"), []byte(id+"\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// restore valid result
-	b2 := &evidence.Bundle{RunID: id, Run: verdict.RunResult{Verdict: verdict.Pass}}
+	// Finalized runs are immutable; write a separate replacement run.
+	id2 := evidence.NewRunID()
+	b2 := &evidence.Bundle{RunID: id2, Run: verdict.RunResult{Verdict: verdict.Pass}}
 	if err := store.WriteBundle(b2); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.LoadLatest()
-	if err != nil || got.RunID != id {
+	if err != nil || got.RunID != id2 {
 		t.Fatalf("%v %+v", err, got)
 	}
 }
