@@ -125,9 +125,10 @@ func RunFrom(ctx context.Context, start string, args []string, stdout, stderr io
 
 	for _, check := range checks {
 		fmt.Fprintf(stdout, "\nRUN %s — %s\n$ %s\n", check.ID, check.Intent, check.Run)
-		command := exec.CommandContext(ctx, shellPath, "-lc", check.Run)
+		run := `export PATH="$INTENTCI_INHERITED_PATH:$PATH"; ` + check.Run
+		command := exec.CommandContext(ctx, shellPath, "-lc", run)
 		command.Dir = root
-		command.Env = os.Environ()
+		command.Env = append(os.Environ(), "INTENTCI_INHERITED_PATH="+os.Getenv("PATH"))
 		command.Stdout = stdout
 		command.Stderr = stderr
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

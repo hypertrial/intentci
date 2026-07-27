@@ -146,7 +146,7 @@ func TestCLIHelpVersionAndUsage(t *testing.T) {
 		t.Fatalf("help = %d, %q", code, out)
 	}
 	code, out, _ = runFrom(t, context.Background(), t.TempDir(), "version")
-	if code != 0 || strings.TrimSpace(out) != "2.0.0" {
+	if code != 0 || strings.TrimSpace(out) != "2.0.1" {
 		t.Fatalf("version = %d, %q", code, out)
 	}
 	root := gitRepo(t)
@@ -196,12 +196,16 @@ func TestInitAndChangedFileWorkflow(t *testing.T) {
 
 func TestMatchingEnvironmentRootAndAll(t *testing.T) {
 	root := gitRepo(t)
+	toolDir := t.TempDir()
+	writeFile(t, toolDir, "intentci-path-probe", "#!/bin/sh\nexit 0\n")
+	profileDir := t.TempDir()
+	writeFile(t, profileDir, ".zprofile", "export PATH=/usr/bin:/bin\n")
 	writeFile(t, root, config.FileName, `version: 2
 checks:
   - id: source
     intent: Source check.
     paths: ["src/**"]
-    run: test "$INTENTCI_TEST_VALUE" = inherited && pwd > where.txt
+    run: intentci-path-probe && test "$INTENTCI_TEST_VALUE" = inherited && pwd > where.txt
   - id: docs
     intent: Docs check.
     paths: ["docs/**"]
@@ -211,6 +215,8 @@ checks:
 	commitAll(t, root)
 	writeFile(t, root, "src/file.txt", "changed")
 	t.Setenv("INTENTCI_TEST_VALUE", "inherited")
+	t.Setenv("PATH", toolDir+":"+os.Getenv("PATH"))
+	t.Setenv("ZDOTDIR", profileDir)
 
 	code, stdout, stderr := runFrom(t, context.Background(), root)
 	if code != 0 || strings.Contains(stdout, "RUN docs") {

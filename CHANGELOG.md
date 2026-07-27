@@ -1,8 +1,19 @@
 # Changelog
 
+## 2.0.1 — 2026-07-27
+
+### Fixed
+
+- Login `zsh` now retains paths inherited from the invoking process, so checks
+  can find tools installed by GitHub Actions, package managers, and parent
+  shells even when a login profile rewrites `PATH`.
+
 ## 2.0.0 — 2026-07-27
 
 IntentCI v2 is an intentionally incompatible, MacBook-first rewrite.
+
+The release archive was published successfully, but its packaged smoke
+validation exposed the login-shell `PATH` bug fixed by v2.0.1. Use v2.0.1.
 
 ### Added
 
