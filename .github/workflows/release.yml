@@ -42,7 +42,7 @@ jobs:
           files: |
             dist/release/intentci_*.tar.gz
             dist/release/checksums.txt
-          body_path: docs/releases/v2.0.0.md
+          body_path: docs/releases/${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
