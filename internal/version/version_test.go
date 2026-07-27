@@ -10,12 +10,12 @@ func TestString(t *testing.T) {
 	old := version.Version
 	defer func() { version.Version = old }()
 
-	version.Version = "1.1.0"
-	if version.String() != "1.1.0" {
+	version.Version = "1.1.1"
+	if version.String() != "1.1.1" {
 		t.Fatalf("got %q", version.String())
 	}
 	version.Version = ""
-	if version.String() != "1.1.0" {
+	if version.String() != "1.1.1" {
 		t.Fatalf("got %q", version.String())
 	}
 }

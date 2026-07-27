@@ -21,7 +21,7 @@ go test -race ./...
 ./scripts/check_examples.sh
 INTENTCI_ACCEPTANCE_OUTPUT="$OUTPUT_DIRECTORY/acceptance-v1.json" \
   go test ./tests/acceptance -run '^TestV1Acceptance$' -v
-INTENTCI_BUILD_VERSION="${INTENTCI_BUILD_VERSION:-1.1.0-dev}" \
+INTENTCI_BUILD_VERSION="${INTENTCI_BUILD_VERSION:-1.1.1-dev}" \
   ./scripts/cross_compile.sh "$TEMPORARY_DIRECTORY/cross-compile"
 ./scripts/record_performance.sh "$OUTPUT_DIRECTORY/performance.txt"
 

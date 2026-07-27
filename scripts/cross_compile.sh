@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIRECTORY="${1:-$REPOSITORY_ROOT/dist/cross-compile}"
-VERSION="${INTENTCI_BUILD_VERSION:-1.1.0-dev}"
+VERSION="${INTENTCI_BUILD_VERSION:-1.1.1-dev}"
 
 mkdir -p "$OUTPUT_DIRECTORY"
 for target in linux/amd64 darwin/amd64 darwin/arm64; do
