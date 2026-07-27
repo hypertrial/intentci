@@ -9,7 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  macos-performance:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.23.x"
+          cache: true
+      - name: Record native macOS performance
+        run: ./scripts/record_performance.sh dist/release-evidence/performance-macos-arm64.txt
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: macos-performance
+          path: dist/release-evidence/performance-macos-arm64.txt
+
   publish:
+    needs: macos-performance
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -43,6 +63,12 @@ jobs:
         run: |
           INTENTCI_BUILD_VERSION="${RELEASE_TAG#v}" \
             ./scripts/validate_v1_release.sh dist/release-evidence
+      - name: Collect platform performance records
+        run: mv dist/release-evidence/performance.txt dist/release-evidence/performance-linux-amd64.txt
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: macos-performance
+          path: dist/release-evidence
       - name: Build deterministic release archives
         run: ./scripts/package_release.sh "${GITHUB_REF_NAME#v}" dist/release
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -56,9 +82,9 @@ jobs:
             dist/release/*.tar.gz
             dist/release/checksums.txt
             dist/release-evidence/acceptance-v1.json
-            dist/release-evidence/performance.txt
+            dist/release-evidence/performance-*.txt
             dist/release-evidence/mutation/*.json
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

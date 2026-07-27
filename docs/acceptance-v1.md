@@ -47,6 +47,15 @@ release gate fails.
 Executable source:
 [`tests/acceptance/v1_acceptance_test.go`](../tests/acceptance/v1_acceptance_test.go).
 
+## v1.1.0 release evidence
+
+The protected `main` commit `04f87d4` passed
+`release-validation (ubuntu-latest)`, `release-validation (macos-latest)`, and
+`build-matrix`:
+[GitHub Actions run 30273342392](https://github.com/hypertrial/intentci/actions/runs/30273342392).
+The tag workflow publishes its machine-readable acceptance matrix, Linux and
+macOS performance records, and mutation reports alongside the v1.1.0 release.
+
 ## Release blockers
 
 A v1 release cannot proceed with:

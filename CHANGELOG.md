@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.1.0 — 2026-07-27
+
+First release validated against the complete normative v1 contract.
+
+### Added
+
+- Typed requirement, obligation, provider, retry, timeout, dependency,
+  platform, evidence-class, and confidence metadata
+- Deterministic canonical IR and verification plans with stable hashes
+- Complete command, JUnit, SARIF, JSONPath-subset, boundary, git-diff, manual,
+  and external-provider v1 behavior
+- Provenance-complete Git repository state, impact selection, scheduler, cache,
+  evidence, reporting, and manifest models
+- Immutable multi-attempt repair runs with pinned contracts, boundary and
+  protected-path enforcement, repeated-work detection, and independent
+  re-verification
+- Explicit configuration precedence and documented `INTENTCI_*` overrides
+- `verify --head`, `--provider`, `--max-parallel`, `--fail-fast`, and
+  `--no-git`; named repair-agent discovery
+- Tracked Go, Python, TypeScript, Rust, and Java examples and integration
+  fixtures
+- Linux/macOS release validation, 20 executable acceptance criteria,
+  zero-survivor mutation checks, performance records, deterministic archives,
+  checksums, and packaged-binary smoke tests
+
+### Fixed
+
+- False passes from stale generated reports, incomplete or informational
+  evidence, low-confidence probabilistic evidence, cancellation, and stale
+  cache keys
+- Invalid status/priority acceptance, unsafe paths and symlinks, unmapped
+  change handling, verifier exit mapping, and repair attempt semantics
+- Per-attempt repository state and binary diff persistence in repair evidence
+  bundles
+
+### Compatibility
+
+Valid v1.0.x requirements and configuration remain accepted. Invalid or
+ambiguous inputs that v1.0.x silently accepted now fail with actionable
+diagnostics. See
+[docs/migration-v1.0-to-v1.1.md](docs/migration-v1.0-to-v1.1.md).
+
 ## 1.0.0 — Breaking rewrite
 
 IntentCI v1 replaces the v0.x Product Contract model.
