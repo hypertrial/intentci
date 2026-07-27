@@ -3,6 +3,9 @@ set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIRECTORY="${1:-$REPOSITORY_ROOT/dist/release-evidence}"
+if [[ "$OUTPUT_DIRECTORY" != /* ]]; then
+  OUTPUT_DIRECTORY="$REPOSITORY_ROOT/$OUTPUT_DIRECTORY"
+fi
 TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/intentci-release.XXXXXX")"
 trap 'rm -rf "$TEMPORARY_DIRECTORY"' EXIT
 
