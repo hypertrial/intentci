@@ -1,6 +1,6 @@
 package version
 
-const DefaultVersion = "2.0.3"
+const DefaultVersion = "2.0.4"
 
 var Version = DefaultVersion
 

@@ -260,7 +260,8 @@ func detect(root string) config.Check {
 		return config.Check{
 			ID: "node-tests", Intent: "Node changes must keep tests passing.",
 			Paths: []string{
-				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs",
+				"**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "tsconfig*.json",
 				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
 			},
 			Run: run,

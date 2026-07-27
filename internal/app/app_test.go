@@ -81,69 +81,77 @@ func TestSelectChecks(t *testing.T) {
 	}
 }
 
-func detectionCases() []struct {
-	name  string
-	files []string
-	want  config.Check
-} {
-	return []struct {
-		name  string
-		files []string
-		want  config.Check
-	}{
-		{"go", []string{"go.mod"}, config.Check{
+type detectionCase struct {
+	name    string
+	files   []string
+	matches []string
+	want    config.Check
+}
+
+func detectionCases() []detectionCase {
+	return []detectionCase{
+		{"go", []string{"go.mod"}, []string{"src/main.go", "go.mod", "go.sum"}, config.Check{
 			ID: "go-tests", Intent: "Go changes must keep tests passing.",
 			Paths: []string{"**/*.go", "go.mod", "go.sum"}, Run: "go test ./...",
 		}},
-		{"pnpm", []string{"package.json", "pnpm-lock.yaml"}, config.Check{
+		{"pnpm", []string{"package.json", "pnpm-lock.yaml"}, nodeMatches(), config.Check{
 			ID: "node-tests", Intent: "Node changes must keep tests passing.",
 			Paths: []string{
-				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs",
+				"**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "tsconfig*.json",
 				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
 			},
 			Run: "pnpm test",
 		}},
-		{"yarn", []string{"package.json", "yarn.lock"}, config.Check{
+		{"yarn", []string{"package.json", "yarn.lock"}, nodeMatches(), config.Check{
 			ID: "node-tests", Intent: "Node changes must keep tests passing.",
 			Paths: []string{
-				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs",
+				"**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "tsconfig*.json",
 				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
 			},
 			Run: "yarn test",
 		}},
-		{"npm", []string{"package.json"}, config.Check{
+		{"npm", []string{"package.json"}, nodeMatches(), config.Check{
 			ID: "node-tests", Intent: "Node changes must keep tests passing.",
 			Paths: []string{
-				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs",
+				"**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "tsconfig*.json",
 				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
 			},
 			Run: "npm test",
 		}},
-		{"uv", []string{"pyproject.toml", "uv.lock"}, config.Check{
-			ID: "python-tests", Intent: "Python changes must keep tests passing.",
-			Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
-			Run:   "uv run pytest -q",
-		}},
-		{"python", []string{"pyproject.toml"}, config.Check{
-			ID: "python-tests", Intent: "Python changes must keep tests passing.",
-			Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
-			Run:   "python3 -m pytest -q",
-		}},
-		{"rust", []string{"Cargo.toml"}, config.Check{
+		{"uv", []string{"pyproject.toml", "uv.lock"},
+			[]string{"src/app.py", "pyproject.toml", "requirements-dev.txt", "uv.lock"}, config.Check{
+				ID: "python-tests", Intent: "Python changes must keep tests passing.",
+				Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
+				Run:   "uv run pytest -q",
+			}},
+		{"python", []string{"pyproject.toml"},
+			[]string{"src/app.py", "pyproject.toml", "requirements-dev.txt", "uv.lock"}, config.Check{
+				ID: "python-tests", Intent: "Python changes must keep tests passing.",
+				Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
+				Run:   "python3 -m pytest -q",
+			}},
+		{"rust", []string{"Cargo.toml"}, []string{"src/lib.rs", "Cargo.toml", "Cargo.lock"}, config.Check{
 			ID: "rust-tests", Intent: "Rust changes must keep tests passing.",
 			Paths: []string{"**/*.rs", "Cargo.toml", "Cargo.lock"}, Run: "cargo test",
 		}},
-		{"maven wrapper", []string{"pom.xml", "mvnw"}, config.Check{
+		{"maven wrapper", []string{"pom.xml", "mvnw"}, []string{
+			"src/main/java/App.java", "pom.xml", ".mvn/wrapper/maven-wrapper.properties", "mvnw", "mvnw.cmd",
+		}, config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
 			Paths: []string{"**/*.java", "pom.xml", ".mvn/**", "mvnw", "mvnw.cmd"},
 			Run:   "./mvnw test",
 		}},
-		{"maven", []string{"pom.xml"}, config.Check{
+		{"maven", []string{"pom.xml"}, []string{
+			"src/main/java/App.java", "pom.xml", ".mvn/wrapper/maven-wrapper.properties", "mvnw", "mvnw.cmd",
+		}, config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
 			Paths: []string{"**/*.java", "pom.xml", ".mvn/**", "mvnw", "mvnw.cmd"},
 			Run:   "mvn test",
 		}},
-		{"gradle wrapper", []string{"build.gradle", "gradlew"}, config.Check{
+		{"gradle wrapper", []string{"build.gradle", "gradlew"}, gradleMatches(), config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
 			Paths: []string{
 				"**/*.java", "build.gradle", "build.gradle.kts",
@@ -152,7 +160,7 @@ func detectionCases() []struct {
 			},
 			Run: "./gradlew test",
 		}},
-		{"gradle", []string{"build.gradle.kts"}, config.Check{
+		{"gradle", []string{"build.gradle.kts"}, gradleMatches(), config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
 			Paths: []string{
 				"**/*.java", "build.gradle", "build.gradle.kts",
@@ -161,7 +169,7 @@ func detectionCases() []struct {
 			},
 			Run: "gradle test",
 		}},
-		{"gradle settings", []string{"settings.gradle"}, config.Check{
+		{"gradle settings", []string{"settings.gradle"}, gradleMatches(), config.Check{
 			ID: "java-tests", Intent: "Java changes must keep tests passing.",
 			Paths: []string{
 				"**/*.java", "build.gradle", "build.gradle.kts",
@@ -170,11 +178,28 @@ func detectionCases() []struct {
 			},
 			Run: "gradle test",
 		}},
-		{"unknown", nil, config.Check{
+		{"unknown", nil, []string{"README.md"}, config.Check{
 			ID: "tests", Intent: "Repository changes must pass its configured tests.",
 			Paths: []string{"**"},
 			Run:   `echo "Edit .intentci.yaml and replace this command." >&2; exit 1`,
 		}},
+	}
+}
+
+func nodeMatches() []string {
+	return []string{
+		"src/app.js", "src/App.jsx", "src/module.mjs", "src/module.cjs",
+		"src/app.ts", "src/App.tsx", "src/module.mts", "src/module.cts",
+		"tsconfig.json", "tsconfig.build.json",
+		"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+	}
+}
+
+func gradleMatches() []string {
+	return []string{
+		"src/main/java/App.java", "build.gradle", "build.gradle.kts",
+		"settings.gradle", "settings.gradle.kts", "gradle/wrapper/gradle-wrapper.properties",
+		"gradle.lockfile", "gradlew", "gradlew.bat",
 	}
 }
 
@@ -235,7 +260,49 @@ func TestInitializeStacks(t *testing.T) {
 			if len(cfg.Checks) != 1 || !reflect.DeepEqual(cfg.Checks[0], test.want) {
 				t.Fatalf("initialized checks = %#v\nwant %#v", cfg.Checks, test.want)
 			}
+			for _, changed := range test.matches {
+				if got := selectChecks(cfg.Checks, []string{changed}); len(got) != 1 {
+					t.Errorf("%q selected %#v", changed, got)
+				}
+			}
+			got := selectChecks(cfg.Checks, []string{"README.md"})
+			if test.name == "unknown" {
+				if len(got) != 1 {
+					t.Errorf("unknown stack selected %#v for README.md", got)
+				}
+			} else if got != nil {
+				t.Errorf("README.md selected %#v", got)
+			}
 		})
+	}
+}
+
+func TestNodeJSXWorkflow(t *testing.T) {
+	root := gitRepo(t)
+	writeFile(t, root, "package.json", "{}")
+	if err := initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, root)
+	writeFile(t, root, "src/App.jsx", "export default function App() {}\n")
+
+	toolDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "npm")
+	writeFile(t, toolDir, "npm", `#!/bin/sh
+printf '%s\n%s\n' "$PWD" "$*" > "$INTENTCI_NPM_MARKER"
+`)
+	t.Setenv("PATH", toolDir+":"+os.Getenv("PATH"))
+	t.Setenv("INTENTCI_NPM_MARKER", marker)
+
+	for _, args := range [][]string{nil, {"--all"}} {
+		code, stdout, stderr := runFrom(t, context.Background(), root, args...)
+		if code != 0 || !strings.Contains(stdout, "RUN node-tests") {
+			t.Fatalf("args %v = %d\n%s\n%s", args, code, stdout, stderr)
+		}
+		data, err := os.ReadFile(marker)
+		if err != nil || string(data) != root+"\ntest\n" {
+			t.Fatalf("npm invocation = %q, %v", data, err)
+		}
 	}
 }
 

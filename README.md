@@ -16,12 +16,12 @@ release.
 IntentCI v2 supports Apple Silicon Macs.
 Source builds on other platforms are incidental and unsupported.
 
-Download `intentci_2.0.3_darwin_arm64.tar.gz` from
+Download `intentci_2.0.4_darwin_arm64.tar.gz` from
 [GitHub Releases](https://github.com/hypertrial/intentci/releases), or install
 from source with Go 1.23 or newer:
 
 ```bash
-go install github.com/hypertrial/intentci/v2/cmd/intentci@v2.0.3
+go install github.com/hypertrial/intentci/v2/cmd/intentci@v2.0.4
 ```
 
 ## Start
