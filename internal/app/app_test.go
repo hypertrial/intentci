@@ -3,17 +3,19 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/hypertrial/intentci/v2/internal/config"
+	"github.com/hypertrial/intentci/v2/internal/version"
 )
 
 func command(t *testing.T, root string, args ...string) {
@@ -79,25 +81,129 @@ func TestSelectChecks(t *testing.T) {
 	}
 }
 
-func TestDetectStacksAndPriority(t *testing.T) {
+func detectionCases() []struct {
+	name  string
+	files []string
+	want  config.Check
+} {
+	return []struct {
+		name  string
+		files []string
+		want  config.Check
+	}{
+		{"go", []string{"go.mod"}, config.Check{
+			ID: "go-tests", Intent: "Go changes must keep tests passing.",
+			Paths: []string{"**/*.go", "go.mod", "go.sum"}, Run: "go test ./...",
+		}},
+		{"pnpm", []string{"package.json", "pnpm-lock.yaml"}, config.Check{
+			ID: "node-tests", Intent: "Node changes must keep tests passing.",
+			Paths: []string{
+				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+			},
+			Run: "pnpm test",
+		}},
+		{"yarn", []string{"package.json", "yarn.lock"}, config.Check{
+			ID: "node-tests", Intent: "Node changes must keep tests passing.",
+			Paths: []string{
+				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+			},
+			Run: "yarn test",
+		}},
+		{"npm", []string{"package.json"}, config.Check{
+			ID: "node-tests", Intent: "Node changes must keep tests passing.",
+			Paths: []string{
+				"**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx",
+				"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+			},
+			Run: "npm test",
+		}},
+		{"uv", []string{"pyproject.toml", "uv.lock"}, config.Check{
+			ID: "python-tests", Intent: "Python changes must keep tests passing.",
+			Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
+			Run:   "uv run pytest -q",
+		}},
+		{"python", []string{"pyproject.toml"}, config.Check{
+			ID: "python-tests", Intent: "Python changes must keep tests passing.",
+			Paths: []string{"**/*.py", "pyproject.toml", "requirements*.txt", "uv.lock"},
+			Run:   "python3 -m pytest -q",
+		}},
+		{"rust", []string{"Cargo.toml"}, config.Check{
+			ID: "rust-tests", Intent: "Rust changes must keep tests passing.",
+			Paths: []string{"**/*.rs", "Cargo.toml", "Cargo.lock"}, Run: "cargo test",
+		}},
+		{"maven wrapper", []string{"pom.xml", "mvnw"}, config.Check{
+			ID: "java-tests", Intent: "Java changes must keep tests passing.",
+			Paths: []string{"**/*.java", "pom.xml", ".mvn/**", "mvnw", "mvnw.cmd"},
+			Run:   "./mvnw test",
+		}},
+		{"maven", []string{"pom.xml"}, config.Check{
+			ID: "java-tests", Intent: "Java changes must keep tests passing.",
+			Paths: []string{"**/*.java", "pom.xml", ".mvn/**", "mvnw", "mvnw.cmd"},
+			Run:   "mvn test",
+		}},
+		{"gradle wrapper", []string{"build.gradle", "gradlew"}, config.Check{
+			ID: "java-tests", Intent: "Java changes must keep tests passing.",
+			Paths: []string{
+				"**/*.java", "build.gradle", "build.gradle.kts",
+				"settings.gradle", "settings.gradle.kts", "gradle/**", "gradle.lockfile",
+				"gradlew", "gradlew.bat",
+			},
+			Run: "./gradlew test",
+		}},
+		{"gradle", []string{"build.gradle.kts"}, config.Check{
+			ID: "java-tests", Intent: "Java changes must keep tests passing.",
+			Paths: []string{
+				"**/*.java", "build.gradle", "build.gradle.kts",
+				"settings.gradle", "settings.gradle.kts", "gradle/**", "gradle.lockfile",
+				"gradlew", "gradlew.bat",
+			},
+			Run: "gradle test",
+		}},
+		{"gradle settings", []string{"settings.gradle"}, config.Check{
+			ID: "java-tests", Intent: "Java changes must keep tests passing.",
+			Paths: []string{
+				"**/*.java", "build.gradle", "build.gradle.kts",
+				"settings.gradle", "settings.gradle.kts", "gradle/**", "gradle.lockfile",
+				"gradlew", "gradlew.bat",
+			},
+			Run: "gradle test",
+		}},
+		{"unknown", nil, config.Check{
+			ID: "tests", Intent: "Repository changes must pass its configured tests.",
+			Paths: []string{"**"},
+			Run:   `echo "Edit .intentci.yaml and replace this command." >&2; exit 1`,
+		}},
+	}
+}
+
+func TestDetectStacks(t *testing.T) {
+	for _, test := range detectionCases() {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, file := range test.files {
+				writeFile(t, root, file, "")
+			}
+			got := detect(root)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("detect() = %#v\nwant %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDetectPriority(t *testing.T) {
 	tests := []struct {
 		name  string
 		files []string
-		id    string
 		run   string
 	}{
-		{"go", []string{"go.mod"}, "go-tests", "go test ./..."},
-		{"pnpm", []string{"package.json", "pnpm-lock.yaml"}, "node-tests", "pnpm test"},
-		{"yarn", []string{"package.json", "yarn.lock"}, "node-tests", "yarn test"},
-		{"npm", []string{"package.json"}, "node-tests", "npm test"},
-		{"uv", []string{"pyproject.toml", "uv.lock"}, "python-tests", "uv run pytest -q"},
-		{"python", []string{"pyproject.toml"}, "python-tests", "python3 -m pytest -q"},
-		{"rust", []string{"Cargo.toml"}, "rust-tests", "cargo test"},
-		{"maven wrapper", []string{"pom.xml", "mvnw"}, "java-tests", "./mvnw test"},
-		{"maven", []string{"pom.xml"}, "java-tests", "mvn test"},
-		{"gradle wrapper", []string{"build.gradle", "gradlew"}, "java-tests", "./gradlew test"},
-		{"gradle", []string{"build.gradle.kts"}, "java-tests", "gradle test"},
-		{"gradle settings", []string{"settings.gradle"}, "java-tests", "gradle test"},
+		{"go before all", []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml", "pom.xml", "build.gradle"}, "go test ./..."},
+		{"node before later stacks", []string{"package.json", "pyproject.toml", "Cargo.toml", "pom.xml", "build.gradle"}, "npm test"},
+		{"python before later stacks", []string{"pyproject.toml", "Cargo.toml", "pom.xml", "build.gradle"}, "python3 -m pytest -q"},
+		{"rust before java", []string{"Cargo.toml", "pom.xml", "build.gradle"}, "cargo test"},
+		{"maven before gradle", []string{"pom.xml", "build.gradle"}, "mvn test"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -105,31 +211,38 @@ func TestDetectStacksAndPriority(t *testing.T) {
 			for _, file := range test.files {
 				writeFile(t, root, file, "")
 			}
-			got := detect(root)
-			if got.ID != test.id || got.Run != test.run {
-				t.Fatalf("detect() = %s/%q, want %s/%q", got.ID, got.Run, test.id, test.run)
+			if got := detect(root); got.Run != test.run {
+				t.Fatalf("priority selected %q, want %q", got.Run, test.run)
 			}
 		})
 	}
-	root := t.TempDir()
-	writeFile(t, root, "package.json", "{}")
-	writeFile(t, root, "go.mod", "module example")
-	if got := detect(root); got.ID != "go-tests" {
-		t.Fatalf("priority selected %q", got.ID)
+}
+
+func TestInitializeStacks(t *testing.T) {
+	for _, test := range detectionCases() {
+		t.Run(test.name, func(t *testing.T) {
+			root := gitRepo(t)
+			for _, file := range test.files {
+				writeFile(t, root, file, "")
+			}
+			if err := initialize(root); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.Checks) != 1 || !reflect.DeepEqual(cfg.Checks[0], test.want) {
+				t.Fatalf("initialized checks = %#v\nwant %#v", cfg.Checks, test.want)
+			}
+		})
 	}
 }
 
-func TestInitialize(t *testing.T) {
+func TestInitializeRefusesOverwriteAndV1(t *testing.T) {
 	root := gitRepo(t)
 	if err := initialize(root); err != nil {
 		t.Fatal(err)
-	}
-	cfg, err := config.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Checks[0].ID != "tests" || !strings.Contains(cfg.Checks[0].Run, "exit 1") {
-		t.Fatalf("placeholder = %#v", cfg.Checks[0])
 	}
 	if err := initialize(root); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("second initialize error = %v", err)
@@ -148,7 +261,7 @@ func TestCLIHelpVersionAndUsage(t *testing.T) {
 		t.Fatalf("help = %d, %q", code, out)
 	}
 	code, out, _ = runFrom(t, context.Background(), t.TempDir(), "version")
-	if code != 0 || strings.TrimSpace(out) != "2.0.2" {
+	if code != 0 || strings.TrimSpace(out) != version.DefaultVersion {
 		t.Fatalf("version = %d, %q", code, out)
 	}
 	root := gitRepo(t)
@@ -163,24 +276,6 @@ func TestCLIHelpVersionAndUsage(t *testing.T) {
 	code, _, stderr = runFrom(t, context.Background(), t.TempDir())
 	if code != 2 || !strings.Contains(stderr, "not a Git repository") {
 		t.Fatalf("non-repo = %d, %q", code, stderr)
-	}
-}
-
-func TestDetectIncludesWrapperPaths(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, "pom.xml", "")
-	writeFile(t, root, "mvnw", "")
-	maven := detect(root)
-	if !slices.Contains(maven.Paths, "mvnw") {
-		t.Fatalf("Maven paths = %v", maven.Paths)
-	}
-
-	root = t.TempDir()
-	writeFile(t, root, "settings.gradle", "")
-	writeFile(t, root, "gradlew", "")
-	gradle := detect(root)
-	if gradle.Run != "./gradlew test" || !slices.Contains(gradle.Paths, "gradlew") {
-		t.Fatalf("Gradle check = %#v", gradle)
 	}
 }
 
@@ -328,4 +423,195 @@ checks:
 	if exitCodeForSignal(os.Interrupt) != 130 || exitCodeForSignal(syscall.SIGTERM) != 143 {
 		t.Fatal("signal exit mapping changed")
 	}
+}
+
+func TestRepositoryCancellationOutput(t *testing.T) {
+	fakeBin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "started")
+	writeFile(t, fakeBin, "git", `#!/bin/zsh
+print started > "$INTENTCI_GIT_MARKER"
+sleep 30
+`)
+	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv("INTENTCI_GIT_MARKER", marker)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	type result struct {
+		code   int
+		stderr string
+	}
+	done := make(chan result, 1)
+	start := t.TempDir()
+	go func() {
+		code, _, stderr := runFrom(t, ctx, start)
+		done <- result{code: code, stderr: stderr}
+	}()
+	waitForPath(t, marker)
+	cancel()
+	select {
+	case got := <-done:
+		if got.code != 130 || !strings.Contains(got.stderr, "intentci: interrupted") ||
+			strings.Contains(got.stderr, "not a Git repository") {
+			t.Fatalf("canceled repository discovery = %d, %q", got.code, got.stderr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("repository discovery ignored cancellation")
+	}
+}
+
+func TestMainSIGINTStopsStubbornGroup(t *testing.T) {
+	root := gitRepo(t)
+	writeFile(t, root, "child.zsh", `#!/bin/zsh
+trap '' TERM
+echo $$ > child.pid
+sleep 30
+`)
+	writeFile(t, root, "outer.zsh", `#!/bin/zsh
+trap '' TERM
+./child.zsh &
+echo $$ > leader.pid
+wait
+`)
+	writeFile(t, root, config.FileName, `version: 2
+checks:
+  - id: stubborn
+    intent: Stubborn processes must stop.
+    paths: ["**"]
+    run: ./outer.zsh
+  - id: later
+    intent: Later checks must not run.
+    paths: ["**"]
+    run: touch later
+`)
+
+	command, _, stderr := mainHelper(root)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	leader := waitPIDFile(t, filepath.Join(root, "leader.pid"))
+	child := waitPIDFile(t, filepath.Join(root, "child.pid"))
+	defer syscall.Kill(-leader, syscall.SIGKILL)
+	if err := command.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+	if code := waitExitCode(t, command); code != 130 {
+		t.Fatalf("SIGINT exit = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "INTERRUPTED stubborn") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	waitProcessGone(t, leader)
+	waitProcessGone(t, child)
+	if _, err := os.Stat(filepath.Join(root, "later")); !os.IsNotExist(err) {
+		t.Fatalf("later check ran: %v", err)
+	}
+}
+
+func TestMainSIGTERMExitCode(t *testing.T) {
+	root := gitRepo(t)
+	writeFile(t, root, "wait.zsh", `#!/bin/zsh
+echo $$ > leader.pid
+sleep 30 &
+echo $! > child.pid
+wait
+`)
+	writeFile(t, root, config.FileName, `version: 2
+checks:
+  - id: wait
+    intent: Interruption must stop this check.
+    paths: ["**"]
+    run: ./wait.zsh
+  - id: later
+    intent: Later checks must not run.
+    paths: ["**"]
+    run: touch later
+`)
+
+	command, _, stderr := mainHelper(root)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	leader := waitPIDFile(t, filepath.Join(root, "leader.pid"))
+	child := waitPIDFile(t, filepath.Join(root, "child.pid"))
+	defer syscall.Kill(-leader, syscall.SIGKILL)
+	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if code := waitExitCode(t, command); code != 143 {
+		t.Fatalf("SIGTERM exit = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "INTERRUPTED wait\n") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	waitProcessGone(t, leader)
+	waitProcessGone(t, child)
+	if _, err := os.Stat(filepath.Join(root, "later")); !os.IsNotExist(err) {
+		t.Fatalf("later check ran: %v", err)
+	}
+}
+
+func TestMainSignalHelper(t *testing.T) {
+	if os.Getenv("INTENTCI_MAIN_HELPER") != "1" {
+		return
+	}
+	os.Exit(Main([]string{"--all"}, os.Stdout, os.Stderr))
+}
+
+func mainHelper(root string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer) {
+	command := exec.Command(os.Args[0], "-test.run=^TestMainSignalHelper$")
+	command.Dir = root
+	command.Env = append(os.Environ(), "INTENTCI_MAIN_HELPER=1")
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	return command, &stdout, &stderr
+}
+
+func waitExitCode(t *testing.T, command *exec.Cmd) int {
+	t.Helper()
+	err := command.Wait()
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("command.Wait() = %v", err)
+	}
+	return exitError.ExitCode()
+}
+
+func waitForPath(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
+}
+
+func waitPIDFile(t *testing.T, path string) int {
+	t.Helper()
+	waitForPath(t, path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+func waitProcessGone(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("process %d survived", pid)
 }

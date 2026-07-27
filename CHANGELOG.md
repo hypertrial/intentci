@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 2.0.3 — 2026-07-27
 
 ### Fixed
 
+- Interrupts now cancel repository discovery and terminate the active check's
+  complete process group, allowing one second for a graceful exit before
+  forcing termination.
 - Changed-file discovery now unions staged and unstaged paths, so opposing
   index and working-tree edits cannot hide a dirty path.
 - Invalid `HEAD` state is reported instead of being mistaken for an unborn
@@ -11,6 +14,8 @@
 - The strict CLI rejects the undocumented `-h` alias.
 - Generated Maven and Gradle checks include their wrapper scripts, and
   settings-only Gradle roots are detected.
+- Tag publication now verifies that the source version matches the tag before
+  building release assets.
 
 ## 2.0.2 — 2026-07-27
 

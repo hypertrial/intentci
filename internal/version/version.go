@@ -1,10 +1,12 @@
 package version
 
-var Version = "2.0.2"
+const DefaultVersion = "2.0.3"
+
+var Version = DefaultVersion
 
 func String() string {
 	if Version == "" {
-		return "2.0.2"
+		return DefaultVersion
 	}
 	return Version
 }

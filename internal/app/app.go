@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hypertrial/intentci/v2/internal/config"
+	"github.com/hypertrial/intentci/v2/internal/process"
 	"github.com/hypertrial/intentci/v2/internal/repo"
 	"github.com/hypertrial/intentci/v2/internal/version"
 )
@@ -84,8 +85,12 @@ func RunFrom(ctx context.Context, start string, args []string, stdout, stderr io
 		return 2
 	}
 
-	root, err := repo.Root(start)
+	root, err := repo.Root(ctx, start)
 	if err != nil {
+		if ctx.Err() != nil {
+			fmt.Fprintln(stderr, "intentci: interrupted")
+			return 130
+		}
 		fmt.Fprintln(stderr, "intentci:", err)
 		return 2
 	}
@@ -106,8 +111,12 @@ func RunFrom(ctx context.Context, start string, args []string, stdout, stderr io
 
 	checks := cfg.Checks
 	if !all {
-		files, err := repo.Changed(root)
+		files, err := repo.Changed(ctx, root)
 		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintln(stderr, "intentci: interrupted")
+				return 130
+			}
 			fmt.Fprintln(stderr, "intentci:", err)
 			return 2
 		}
@@ -126,21 +135,12 @@ func RunFrom(ctx context.Context, start string, args []string, stdout, stderr io
 	for _, check := range checks {
 		fmt.Fprintf(stdout, "\nRUN %s — %s\n$ %s\n", check.ID, check.Intent, check.Run)
 		run := `export PATH="$INTENTCI_INHERITED_PATH:$PATH"; ` + check.Run
-		command := exec.CommandContext(ctx, shellPath, "-lc", run)
+		command := exec.Command(shellPath, "-lc", run)
 		command.Dir = root
 		command.Env = append(os.Environ(), "INTENTCI_INHERITED_PATH="+os.Getenv("PATH"))
 		command.Stdout = stdout
 		command.Stderr = stderr
-		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		command.Cancel = func() error {
-			err := syscall.Kill(-command.Process.Pid, syscall.SIGTERM)
-			if errors.Is(err, syscall.ESRCH) {
-				return os.ErrProcessDone
-			}
-			return err
-		}
-		command.WaitDelay = time.Second
-		err := command.Run()
+		err := process.Run(ctx, command, time.Second)
 		if ctx.Err() != nil {
 			fmt.Fprintf(stderr, "INTERRUPTED %s\n", check.ID)
 			return 130
