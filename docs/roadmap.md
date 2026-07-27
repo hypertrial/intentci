@@ -23,7 +23,7 @@ Optional local/HTTP semantic providers (Product Contract overlay).
 
 These lines are **superseded** by v1.0.0. See [migration-v0-to-v1.md](migration-v0-to-v1.md).
 
-## v1.1.0 — Full v1 conformance
+## v1.1.0 — Full v1 conformance (released 2026-07-27)
 
 All acceptance criteria in [v1.md §38](../v1.md) / [acceptance-v1.md](acceptance-v1.md).
 

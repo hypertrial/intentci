@@ -1,12 +1,12 @@
-# Migrating from v1.0.x to v1.1
+# Migrating from v1.0.x to v1.1.0
 
-v1.1 keeps schema/protocol major version `1` and accepts valid v1.0.x
+v1.1.0 keeps schema/protocol major version `1` and accepts valid v1.0.x
 requirements and configuration. It is stricter about malformed input and adds
 provenance fields to outputs.
 
 The published v1.0.0 and v1.0.1 tags are immutable historical releases.
-v1.1.0 supersedes them as the first release validated against every normative
-v1 requirement.
+v1.1.0, released 2026-07-27, supersedes them as the first release validated
+against every normative v1 requirement.
 
 ## Compatible additions
 

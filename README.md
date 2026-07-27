@@ -19,10 +19,10 @@ FAIL REQ-AUTH-001
 
 ## Status
 
-The v1 product model is implemented and validated by the executable
-[§38 acceptance matrix](docs/acceptance-v1.md). The published v1.0.x releases
-are preserved as historical tags; v1.1.0 is the first release gated against
-the complete normative [`v1.md`](v1.md).
+**v1.1.0** is the first release validated against the complete normative
+[`v1.md`](v1.md), including the executable
+[§38 acceptance matrix](docs/acceptance-v1.md). The v1.0.x releases remain
+available as immutable historical tags.
 
 Breaking change from v0.x Product Contracts: [docs/migration-v0-to-v1.md](docs/migration-v0-to-v1.md).
 Existing v1.0.x users: [v1.0.x → v1.1 migration](docs/migration-v1.0-to-v1.1.md).
@@ -42,6 +42,12 @@ intentci version
 ### From source
 
 Requires Go 1.23+.
+
+```bash
+go install github.com/hypertrial/intentci/cmd/intentci@v1.1.0
+```
+
+For development:
 
 ```bash
 git clone https://github.com/hypertrial/intentci.git
